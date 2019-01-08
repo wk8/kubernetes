@@ -25,12 +25,17 @@ limitations under the License.
 package gmsaauthorizer
 
 import (
+	"fmt"
 	"io"
+
+
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apiserver/pkg/authorization/authorizer"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/kubernetes/staging/src/k8s.io/apiserver/pkg/admission"
 	api "k8s.io/kubernetes/pkg/apis/core"
+	genericadmissioninit "k8s.io/apiserver/pkg/admission/initializer"
 )
 
 // PluginName indicates name of admission plugin.
@@ -50,14 +55,29 @@ func Register(plugins *admission.Plugins) {
 // verb on the gMSA's configmap.
 type GMSAAuthorizer struct {
 	*admission.Handler
+	authorizer            authorizer.Authorizer
 }
 
-// have the compiler check that we satisfy the interface
+// have the compiler check that we satisfy the right interfaces
 var _ admission.ValidationInterface = &GMSAAuthorizer{}
+var _ genericadmissioninit.WantsAuthorizer = &GMSAAuthorizer{}
+
+// SetAuthorizer sets the authorizer.
+func (a *GMSAAuthorizer) SetAuthorizer(authorizer authorizer.Authorizer) {
+	a.authorizer = authorizer
+}
+
+// ValidateInitialization ensures an authorizer is set.
+func (a *GMSAAuthorizer) ValidateInitialization() error {
+	if a.authorizer == nil {
+		return fmt.Errorf("%s requires an authorizer", PluginName)
+	}
+	return nil
+}
 
 // Validate makes sure that pods using gMSA's are created by users who are indeed authorized to
 // use the requested gMSA
-func (*GMSAAuthorizer) Validate(attributes admission.Attributes) error {
+func (a *GMSAAuthorizer) Validate(attributes admission.Attributes) error {
 	if !isPodRequest(attributes) {
 		return nil
 	}
@@ -79,8 +99,21 @@ func (*GMSAAuthorizer) Validate(attributes admission.Attributes) error {
 		}
 	}
 
+	// TODO see the podsecurityadmission!
+	wkpo := authorizer.AttributesRecord{
+		User:            attributes.GetUserInfo(),
+		Verb:            "use",
+		Namespace:       attributes.GetNamespace(),
 
-	// TODO wkpo
+		APIGroup:        attributes.GetResource().Group
+		Resource:        attributes.GetNamespace(),
+		Name:            attributes.GetName(),
+
+		ResourceRequest: true,
+	}
+
+	// TODO wkpo check pod.Spec.ServiceAccountName?
+
 }
 
 func newGMSAAuthorizer() *GMSAAuthorizer{
@@ -96,6 +129,7 @@ func isPodRequest(attributes admission.Attributes) bool {
 
 // Casts a generic API object to a pod, and
 // extracts the `spec.securityContext.windows.credentialSpecConfig` field of a its spec
+// TODO wkpo on a besoin du pod??
 func extractCredentialSpecConfigFromPod(object runtime.Object) (pod *api.Pod, credentialSpecConfig string, err error) {
 	pod, ok := object.(*api.Pod)
 	if !ok {
