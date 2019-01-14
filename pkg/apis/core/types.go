@@ -2722,10 +2722,6 @@ type PodSecurityContext struct {
 	// sysctls (by the container runtime) might fail to launch.
 	// +optional
 	Sysctls []Sysctl
-	// Windows security options to be applied to all containers within this pod - only
-	// applicable to pods running on Windows hosts
-	// +optional
-	WindowsSecurityOptions *WindowsSecurityOptions
 }
 
 // PodQOSClass defines the supported qos classes of Pods.
@@ -4691,12 +4687,6 @@ type SELinuxOptions struct {
 	// SELinux level label.
 	// +optional
 	Level string
-}
-
-// WindowsSecurityOptions for pods running on Windows nodes
-type WindowsSecurityOptions struct {
-	// the name of an existing gMSA configmap to use to start this pod's containers
-	CredentialSpecConfig string
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
