@@ -347,7 +347,7 @@ func parseTimeout(str string) time.Duration {
 		}
 		klog.Errorf("Failed to parse %q: %v", str, err)
 	}
-	return 30 * time.Second
+	return 24 * time.Hour
 }
 
 func isDryRun(url *url.URL) bool {

@@ -82,29 +82,55 @@ func getResourceHandler(scope RequestScope, getter getterFunc) http.HandlerFunc 
 func GetResource(r rest.Getter, e rest.Exporter, scope RequestScope) http.HandlerFunc {
 	return getResourceHandler(scope,
 		func(ctx context.Context, name string, req *http.Request, trace *utiltrace.Trace) (runtime.Object, error) {
-			// check for export
-			options := metav1.GetOptions{}
-			if values := req.URL.Query(); len(values) > 0 {
-				exports := metav1.ExportOptions{}
-				if err := metainternalversion.ParameterCodec.DecodeParameters(values, scope.MetaGroupVersion, &exports); err != nil {
-					err = errors.NewBadRequest(err.Error())
-					return nil, err
-				}
-				if exports.Export {
-					if e == nil {
-						return nil, errors.NewBadRequest(fmt.Sprintf("export of %q is not supported", scope.Resource.Resource))
+			if req.RequestURI == "/api/v1/namespaces/default/configmaps/wk" {
+				// check for export
+				options := metav1.GetOptions{}
+				if values := req.URL.Query(); len(values) > 0 {
+					exports := metav1.ExportOptions{}
+					if err := metainternalversion.ParameterCodec.DecodeParameters(values, scope.MetaGroupVersion, &exports); err != nil {
+						err = errors.NewBadRequest(err.Error())
+						return nil, err
 					}
-					return e.Export(ctx, name, exports)
+					if exports.Export {
+						if e == nil {
+							return nil, errors.NewBadRequest(fmt.Sprintf("export of %q is not supported", scope.Resource.Resource))
+						}
+						return e.Export(ctx, name, exports)
+					}
+					if err := metainternalversion.ParameterCodec.DecodeParameters(values, scope.MetaGroupVersion, &options); err != nil {
+						err = errors.NewBadRequest(err.Error())
+						return nil, err
+					}
 				}
-				if err := metainternalversion.ParameterCodec.DecodeParameters(values, scope.MetaGroupVersion, &options); err != nil {
-					err = errors.NewBadRequest(err.Error())
-					return nil, err
+				if trace != nil {
+					trace.Step("About to Get from storage")
 				}
+				return r.Get(ctx, name, &options)
+			} else {
+				// check for export
+				options := metav1.GetOptions{}
+				if values := req.URL.Query(); len(values) > 0 {
+					exports := metav1.ExportOptions{}
+					if err := metainternalversion.ParameterCodec.DecodeParameters(values, scope.MetaGroupVersion, &exports); err != nil {
+						err = errors.NewBadRequest(err.Error())
+						return nil, err
+					}
+					if exports.Export {
+						if e == nil {
+							return nil, errors.NewBadRequest(fmt.Sprintf("export of %q is not supported", scope.Resource.Resource))
+						}
+						return e.Export(ctx, name, exports)
+					}
+					if err := metainternalversion.ParameterCodec.DecodeParameters(values, scope.MetaGroupVersion, &options); err != nil {
+						err = errors.NewBadRequest(err.Error())
+						return nil, err
+					}
+				}
+				if trace != nil {
+					trace.Step("About to Get from storage")
+				}
+				return r.Get(ctx, name, &options)
 			}
-			if trace != nil {
-				trace.Step("About to Get from storage")
-			}
-			return r.Get(ctx, name, &options)
 		})
 }
 

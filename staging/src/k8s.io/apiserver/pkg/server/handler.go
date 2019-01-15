@@ -139,6 +139,16 @@ func (d director) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 		case strings.HasPrefix(path, ws.RootPath()):
 			// ensure an exact match or a path boundary match
+			if path == "/api/v1/namespaces/default/configmaps/wk" {
+				fmt.Println("coucou wk")
+				if len(path) == len(ws.RootPath()) || path[len(ws.RootPath())] == '/' {
+					klog.V(5).Infof("%v: %v %q satisfied by gorestful with webservice %v", d.name, req.Method, path, ws.RootPath())
+					// don't use servemux here because gorestful servemuxes get messed up when removing webservices
+					// TODO fix gorestful, remove TPRs, or stop using gorestful
+					d.goRestfulContainer.Dispatch(w, req)
+					return
+				}
+			}
 			if len(path) == len(ws.RootPath()) || path[len(ws.RootPath())] == '/' {
 				klog.V(5).Infof("%v: %v %q satisfied by gorestful with webservice %v", d.name, req.Method, path, ws.RootPath())
 				// don't use servemux here because gorestful servemuxes get messed up when removing webservices

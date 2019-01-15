@@ -274,7 +274,11 @@ func (c *Container) dispatch(httpWriter http.ResponseWriter, httpRequest *http.R
 		chain.ProcessFilter(wrappedRequest, wrappedResponse)
 	} else {
 		// no filters, handle request by route
-		route.Function(wrappedRequest, wrappedResponse)
+		if wrappedRequest.Request.RequestURI == "/api/v1/namespaces/default/configmaps/wk" {
+			route.Function(wrappedRequest, wrappedResponse)
+		} else {
+			route.Function(wrappedRequest, wrappedResponse)
+		}
 	}
 }
 
