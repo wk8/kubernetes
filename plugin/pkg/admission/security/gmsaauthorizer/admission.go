@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -114,7 +115,9 @@ func (a *GMSAAuthorizer) Validate(attributes admission.Attributes) error {
 
 	// check that the associated service account can read the relevant service map
 	if !a.isAuthorizedToReadConfigMap(attributes, pod, configMapName) {
-		return apierrors.NewForbidden(schema.GroupResource{Resource: "configmap"}, configMapName, fmt.Errorf(fmt.Sprintf("service account %s does not have access to the config map at %s", pod.Spec.ServiceAccountName, configMapName)))
+		return apierrors.NewForbidden(schema.GroupResource{Resource: string(corev1.ResourceConfigMaps)},
+			configMapName,
+			fmt.Errorf(fmt.Sprintf("service account %s does not have access to the config map at %s", pod.Spec.ServiceAccountName, configMapName)))
 	}
 
 	// finally inline the config map's contents into the spec
@@ -159,7 +162,7 @@ func (a *GMSAAuthorizer) isAuthorizedToReadConfigMap(attributes admission.Attrib
 
 		// TODO wkpo c bon ca?
 		// APIGroup:        attributes.GetResource().Group
-		Resource: "configmap",
+		Resource: string(corev1.ResourceConfigMaps), // TODO wkpo ? "configmap",
 		Name:     configMapName,
 
 		ResourceRequest: true,
