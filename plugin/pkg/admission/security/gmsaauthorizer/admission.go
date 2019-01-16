@@ -84,7 +84,7 @@ func (a *GMSAAuthorizer) SetAuthorizer(authorizer authorizer.Authorizer) {
 	a.authorizer = authorizer
 }
 
-// SetExternalKubeClientSet implements the WantsInternalKubeClientSet interface.
+// SetExternalKubeClientSet implements the WantsExternalKubeClientSet interface.
 func (a *GMSAAuthorizer) SetExternalKubeClientSet(client kubernetes.Interface) {
 	a.client = client
 }
