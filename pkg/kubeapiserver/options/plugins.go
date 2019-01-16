@@ -95,7 +95,7 @@ var AllOrderedPlugins = []string{
 	validatingwebhook.PluginName,            // ValidatingAdmissionWebhook
 	resourcequota.PluginName,                // ResourceQuota
 	deny.PluginName,                         // AlwaysDeny
-	gmsaauthorizer.PluginName,               //GMSAAuthorizer
+	gmsaauthorizer.PluginName,               // GMSAAuthorizer
 }
 
 // RegisterAllAdmissionPlugins registers all admission plugins and

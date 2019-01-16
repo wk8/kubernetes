@@ -178,6 +178,7 @@ func ensureNoUpdates(attributes admission.Attributes, pod *api.Pod) error {
 // isAuthorizedToReadConfigMap checks that the service account is authorized to read that config map
 func (a *GMSAAuthorizer) isAuthorizedToReadConfigMap(attributes admission.Attributes, pod *api.Pod, configMapName string) bool {
 	var serviceAccountInfo user.Info
+	// TODO wkpo not sure that if makes sense. when no service account, seems to be default?
 	if pod.Spec.ServiceAccountName != "" {
 		// TODO wkpo: what happens if there's no service account in the spec? should we deny then?
 		serviceAccountInfo = serviceaccount.UserInfo(attributes.GetNamespace(), pod.Spec.ServiceAccountName, "")
