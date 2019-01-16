@@ -139,12 +139,10 @@ func (a *GMSAAuthorizer) Admit(attributes admission.Attributes) error {
 
 	// finally inline the config map's contents into the spec
 	configMap, err := a.client.CoreV1().ConfigMaps(attributes.GetNamespace()).Get(configMapName, metav1.GetOptions{})
-	if err != nil {
-		return apierrors.NewInternalError(err)
-	}
-	if configMap == nil {
-		// TODO wkpo test on this? wouldn't that result in an error when running isAuthorizedToReadConfigMap above already?
+	if err != nil && apierrors.IsNotFound(err) || configMap == nil {
 		return apierrors.NewBadRequest(fmt.Sprintf("config map %s does not exist", configMapName))
+	} else if err != nil {
+		return apierrors.NewInternalError(err)
 	}
 	credSpecBytes, err := configMap.Marshal()
 	if err != nil {
