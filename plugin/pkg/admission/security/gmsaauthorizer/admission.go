@@ -74,7 +74,7 @@ type GMSAAuthorizer struct {
 }
 
 // have the compiler check that we satisfy the right interfaces
-var _ admission.ValidationInterface = &GMSAAuthorizer{}
+var _ admission.MutationInterface = &GMSAAuthorizer{}
 var _ genericadmissioninit.WantsAuthorizer = &GMSAAuthorizer{}
 var _ genericadmissioninit.WantsExternalKubeClientSet = &GMSAAuthorizer{}
 
@@ -101,9 +101,9 @@ func (a *GMSAAuthorizer) ValidateInitialization() error {
 
 var notAPodError = apierrors.NewBadRequest("Resource was marked with kind Pod but was unable to be converted")
 
-// Validate makes sure that pods using gMSA's are created by users who are indeed authorized to
-// use the requested gMSA
-func (a *GMSAAuthorizer) Validate(attributes admission.Attributes) error {
+// Admit makes sure that pods using gMSA's are created using ServiceAccounts who are indeed
+// authorized to use the requested gMSA, and inlines it into the pod's spec
+func (a *GMSAAuthorizer) Admit(attributes admission.Attributes) error {
 	if !isPodRequest(attributes) {
 		return nil
 	}
