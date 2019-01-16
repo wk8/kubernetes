@@ -25,12 +25,13 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apiserver/pkg/admission"
 	genericadmissioninit "k8s.io/apiserver/pkg/admission/initializer"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/serviceaccount"
@@ -45,7 +46,7 @@ const (
 	// containing the gMSA's cred spec
 	gMSAConfigMapAnnotationKey = "pod.alpha.kubernetes.io/windows-gmsa-config-map"
 	// gMSACredSpecAnnotationKey's use is restricted to this admission controller, and any
-	// value set by the user will be silently overwritten
+	// attempt to set a value by the user will result in an error
 	gMSACredSpecAnnotationKey = "pod.alpha.kubernetes.io/windows-gmsa-cred-spec"
 )
 
@@ -56,6 +57,12 @@ func Register(plugins *admission.Plugins) {
 	})
 }
 
+func newGMSAAuthorizer() *GMSAAuthorizer {
+	return &GMSAAuthorizer{
+		Handler: admission.NewHandler(admission.Create, admission.Update),
+	}
+}
+
 // A GMSAAuthorizer looks at all new pods and, if they try to make use of a gMSA, check that
 // their spec's serviceAccountName are authorized for the `use`
 // verb on the gMSA's configmap.
@@ -63,24 +70,36 @@ func Register(plugins *admission.Plugins) {
 type GMSAAuthorizer struct {
 	*admission.Handler
 	authorizer authorizer.Authorizer
+	client     kubernetes.Interface
 }
 
 // have the compiler check that we satisfy the right interfaces
 var _ admission.ValidationInterface = &GMSAAuthorizer{}
 var _ genericadmissioninit.WantsAuthorizer = &GMSAAuthorizer{}
+var _ genericadmissioninit.WantsExternalKubeClientSet = &GMSAAuthorizer{}
 
 // SetAuthorizer sets the authorizer.
 func (a *GMSAAuthorizer) SetAuthorizer(authorizer authorizer.Authorizer) {
 	a.authorizer = authorizer
 }
 
-// ValidateInitialization ensures an authorizer is set.
+// SetExternalKubeClientSet implements the WantsInternalKubeClientSet interface.
+func (a *GMSAAuthorizer) SetExternalKubeClientSet(client kubernetes.Interface) {
+	a.client = client
+}
+
+// ValidateInitialization ensures an authorizer and a client have both been provided.
 func (a *GMSAAuthorizer) ValidateInitialization() error {
 	if a.authorizer == nil {
 		return fmt.Errorf("%s requires an authorizer", PluginName)
 	}
+	if a.client == nil {
+		return fmt.Errorf("%s requires an internal kube client", PluginName)
+	}
 	return nil
 }
+
+var notAPodError = apierrors.NewBadRequest("Resource was marked with kind Pod but was unable to be converted")
 
 // Validate makes sure that pods using gMSA's are created by users who are indeed authorized to
 // use the requested gMSA
@@ -89,31 +108,29 @@ func (a *GMSAAuthorizer) Validate(attributes admission.Attributes) error {
 		return nil
 	}
 
-	pod, configMapName, err := extractConfigMapNameFromPod(attributes.GetObject())
-	if err != nil {
-		return err
+	pod, ok := attributes.GetObject().(*api.Pod)
+	if !ok {
+		return notAPodError
 	}
 
 	// forbid updates
 	// TODO wkpo: what happens then? restart loop? error message?
 	if attributes.GetOperation() == admission.Update {
-		_, oldConfigMapName, err := extractConfigMapNameFromPod(attributes.GetOldObject())
-		if err != nil {
-			return err
-		}
-
-		if configMapName != oldConfigMapName {
-			return apierrors.NewBadRequest(fmt.Sprintf("Cannot update an existing pod's %s annotation", gMSAConfigMapAnnotationKey))
-		}
+		return ensureNoUpdates(attributes, pod)
 	}
 
-	if configMapName == "" {
-		// nothing to do, let's still make sure there's no cred spec inlined
-		delete(pod.Annotations, gMSACredSpecAnnotationKey)
+	// only this plugin is allowed to populate the actual contents of the cred spec
+	if _, present := pod.Annotations[gMSACredSpecAnnotationKey]; present {
+		return apierrors.NewBadRequest(fmt.Sprintf("Forbidden to set the %s annotation", gMSACredSpecAnnotationKey))
+	}
+
+	configMapName, present := pod.Annotations[gMSAConfigMapAnnotationKey]
+	if !present || configMapName == "" {
+		// nothing to do then
 		return nil
 	}
 
-	// check that the associated service account can read the relevant service map
+	// let's check that the associated service account can read the relevant service map
 	if !a.isAuthorizedToReadConfigMap(attributes, pod, configMapName) {
 		return apierrors.NewForbidden(schema.GroupResource{Resource: string(corev1.ResourceConfigMaps)},
 			configMapName,
@@ -121,13 +138,21 @@ func (a *GMSAAuthorizer) Validate(attributes admission.Attributes) error {
 	}
 
 	// finally inline the config map's contents into the spec
-
-}
-
-func newGMSAAuthorizer() *GMSAAuthorizer {
-	return &GMSAAuthorizer{
-		Handler: admission.NewHandler(admission.Create, admission.Update),
+	configMap, err := a.client.CoreV1().ConfigMaps(attributes.GetNamespace()).Get(configMapName, metav1.GetOptions{})
+	if err != nil {
+		return apierrors.NewInternalError(err)
 	}
+	if configMap == nil {
+		// TODO wkpo test on this? wouldn't that result in an error when running isAuthorizedToReadConfigMap above already?
+		return apierrors.NewBadRequest(fmt.Sprintf("config map %s does not exist", configMapName))
+	}
+	credSpecBytes, err := configMap.Marshal()
+	if err != nil {
+		return apierrors.NewInternalError(err)
+	}
+	pod.Annotations[gMSACredSpecAnnotationKey] = string(credSpecBytes)
+
+	return nil
 }
 
 // isPodRequest checks that the request involves a pod
@@ -135,15 +160,19 @@ func isPodRequest(attributes admission.Attributes) bool {
 	return len(attributes.GetSubresource()) == 0 && attributes.GetResource().GroupResource() == api.Resource("pods")
 }
 
-// extractConfigMapNameFromPod casts a generic API object to a pod, and
-// extracts the name of the config map containing the gMSA cred spec, if any
-// TODO wkpo on a besoin du pod??
-func extractConfigMapNameFromPod(object runtime.Object) (*api.Pod, string, error) {
-	pod, ok := object.(*api.Pod)
+// ensureNoUpdates ensures that there are no updates to any of the 2 annotations we care about
+func ensureNoUpdates(attributes admission.Attributes, pod *api.Pod) error {
+	oldPod, ok := attributes.GetOldObject().(*api.Pod)
 	if !ok {
-		return nil, "", apierrors.NewBadRequest("Resource was marked with kind Pod but was unable to be converted")
+		return notAPodError
 	}
-	return pod, pod.Annotations[gMSAConfigMapAnnotationKey], nil
+
+	if pod.Annotations[gMSAConfigMapAnnotationKey] != oldPod.Annotations[gMSAConfigMapAnnotationKey] ||
+		pod.Annotations[gMSACredSpecAnnotationKey] != oldPod.Annotations[gMSACredSpecAnnotationKey] {
+		return apierrors.NewBadRequest("Cannot update an existing pod's gMSA annotation")
+	}
+
+	return nil
 }
 
 // TODO wkpo: read? use?
