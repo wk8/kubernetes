@@ -20,6 +20,7 @@ limitations under the License.
 package gmsaauthorizer
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -144,7 +145,7 @@ func (a *GMSAAuthorizer) Admit(attributes admission.Attributes) error {
 	} else if err != nil {
 		return apierrors.NewInternalError(err)
 	}
-	credSpecBytes, err := configMap.Marshal()
+	credSpecBytes, err := json.Marshal(configMap.Data)
 	if err != nil {
 		return apierrors.NewInternalError(err)
 	}
