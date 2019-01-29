@@ -106,6 +106,7 @@ func (ds *dockerService) CreateContainer(_ context.Context, r *runtimeapi.Create
 	labels[containerLogPathLabelKey] = filepath.Join(sandboxConfig.LogDirectory, config.LogPath)
 	// Write the sandbox ID in the labels.
 	labels[sandboxIDLabelKey] = podSandboxID
+	labels["WKPO"] = "bordel"
 
 	apiVersion, err := ds.getDockerAPIVersion()
 	if err != nil {
