@@ -46,9 +46,10 @@ const (
 	// gMSAConfigMapAnnotationKey is set by users, and should give the name of the configmap
 	// containing the gMSA's cred spec
 	gMSAConfigMapAnnotationKey = "pod.alpha.kubernetes.io/windows-gmsa-config-map"
-	// gMSACredSpecAnnotationKey's use is restricted to this admission controller, and any
+	// GMSACredSpecAnnotationKey contains the actual content of the credential specs to use
+	// its use is restricted to this admission controller, and any
 	// attempt to set a value by the user will result in an error
-	gMSACredSpecAnnotationKey = "pod.alpha.kubernetes.io/windows-gmsa-cred-spec"
+	GMSACredSpecAnnotationKey = "pod.alpha.kubernetes.io/windows-gmsa-cred-spec"
 )
 
 // Register registers a plugin
@@ -121,8 +122,8 @@ func (a *GMSAAuthorizer) Admit(attributes admission.Attributes) error {
 	}
 
 	// only this plugin is allowed to populate the actual contents of the cred spec
-	if _, present := pod.Annotations[gMSACredSpecAnnotationKey]; present {
-		return apierrors.NewBadRequest(fmt.Sprintf("Forbidden to set the %s annotation", gMSACredSpecAnnotationKey))
+	if _, present := pod.Annotations[GMSACredSpecAnnotationKey]; present {
+		return apierrors.NewBadRequest(fmt.Sprintf("Forbidden to set the %s annotation", GMSACredSpecAnnotationKey))
 	}
 
 	configMapName, present := pod.Annotations[gMSAConfigMapAnnotationKey]
@@ -149,7 +150,7 @@ func (a *GMSAAuthorizer) Admit(attributes admission.Attributes) error {
 	if err != nil {
 		return apierrors.NewInternalError(err)
 	}
-	pod.Annotations[gMSACredSpecAnnotationKey] = string(credSpecBytes)
+	pod.Annotations[GMSACredSpecAnnotationKey] = string(credSpecBytes)
 
 	return nil
 }
@@ -167,7 +168,7 @@ func ensureNoUpdates(attributes admission.Attributes, pod *api.Pod) error {
 	}
 
 	if pod.Annotations[gMSAConfigMapAnnotationKey] != oldPod.Annotations[gMSAConfigMapAnnotationKey] ||
-		pod.Annotations[gMSACredSpecAnnotationKey] != oldPod.Annotations[gMSACredSpecAnnotationKey] {
+		pod.Annotations[GMSACredSpecAnnotationKey] != oldPod.Annotations[GMSACredSpecAnnotationKey] {
 		return apierrors.NewBadRequest("Cannot update an existing pod's gMSA annotation")
 	}
 

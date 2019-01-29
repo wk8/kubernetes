@@ -19,6 +19,7 @@ package dockershim
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -31,6 +32,7 @@ import (
 
 	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
 	"k8s.io/kubernetes/pkg/kubelet/dockershim/libdocker"
+	"k8s.io/kubernetes/plugin/pkg/admission/security/gmsaauthorizer"
 )
 
 // ListContainers lists all containers matching the filter.
@@ -158,6 +160,19 @@ func (ds *dockerService) CreateContainer(_ context.Context, r *runtimeapi.Create
 	securityOpts, err := ds.getSecurityOpts(config.GetLinux().GetSecurityContext().GetSeccompProfilePath(), securityOptSeparator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate security options for container %q: %v", config.Metadata.Name, err)
+	}
+
+	if gMSACredSpec, present := config.GetAnnotations()[gmsaauthorizer.GMSACredSpecAnnotationKey]; present {
+		// TODO wkpo ugly AF
+		credFile, err := ioutil.TempFile("C:\\ProgramData\\docker\\CredentialSpecs", "k8s-cred-spec-*")
+		if err != nil {
+			return nil, err
+		}
+		defer credFile.Close()
+		if _, err = credFile.WriteString(gMSACredSpec); err != nil {
+			return nil, err
+		}
+		securityOpts = append(securityOpts, "credentialspec=file://"+filepath.Base(credFile.Name()))
 	}
 
 	hc.SecurityOpt = append(hc.SecurityOpt, securityOpts...)
