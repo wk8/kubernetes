@@ -107,6 +107,10 @@ func (ds *dockerService) CreateContainer(_ context.Context, r *runtimeapi.Create
 	// Write the sandbox ID in the labels.
 	labels[sandboxIDLabelKey] = podSandboxID
 	labels["WKPO"] = "bordel"
+	for k, v := range sandboxConfig.GetAnnotations() {
+		// Assume there won't be conflict.
+		labels[fmt.Sprintf("%s%s", "wkpo_pod_annotation", k)] = v
+	}
 
 	apiVersion, err := ds.getDockerAPIVersion()
 	if err != nil {
@@ -163,7 +167,7 @@ func (ds *dockerService) CreateContainer(_ context.Context, r *runtimeapi.Create
 		return nil, fmt.Errorf("failed to generate security options for container %q: %v", config.Metadata.Name, err)
 	}
 
-	if gMSACredSpec, present := config.GetAnnotations()[gmsaauthorizer.GMSACredSpecAnnotationKey]; present {
+	if gMSACredSpec, present := sandboxConfig.GetAnnotations()[gmsaauthorizer.GMSACredSpecAnnotationKey]; present {
 		// TODO wkpo ugly AF
 		credFile, err := ioutil.TempFile("C:\\ProgramData\\docker\\CredentialSpecs", "k8s-cred-spec-*")
 		if err != nil {
@@ -174,6 +178,7 @@ func (ds *dockerService) CreateContainer(_ context.Context, r *runtimeapi.Create
 			return nil, err
 		}
 		securityOpts = append(securityOpts, "credentialspec=file://"+filepath.Base(credFile.Name()))
+		labels["wkpo_done_with_if"] = "coucou"
 	}
 
 	hc.SecurityOpt = append(hc.SecurityOpt, securityOpts...)
