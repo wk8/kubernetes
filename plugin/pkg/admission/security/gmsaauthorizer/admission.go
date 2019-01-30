@@ -20,7 +20,6 @@ limitations under the License.
 package gmsaauthorizer
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -146,11 +145,8 @@ func (a *GMSAAuthorizer) Admit(attributes admission.Attributes) error {
 	} else if err != nil {
 		return apierrors.NewInternalError(err)
 	}
-	credSpecBytes, err := json.Marshal(configMap.Data)
-	if err != nil {
-		return apierrors.NewInternalError(err)
-	}
-	pod.Annotations[GMSACredSpecAnnotationKey] = string(credSpecBytes)
+	// TODO wkpo blah. make it a CRD....
+	pod.Annotations[GMSACredSpecAnnotationKey] = configMap.Data["json"]
 
 	return nil
 }

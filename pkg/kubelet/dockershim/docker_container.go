@@ -106,11 +106,11 @@ func (ds *dockerService) CreateContainer(_ context.Context, r *runtimeapi.Create
 	labels[containerLogPathLabelKey] = filepath.Join(sandboxConfig.LogDirectory, config.LogPath)
 	// Write the sandbox ID in the labels.
 	labels[sandboxIDLabelKey] = podSandboxID
-	labels["WKPO"] = "bordel"
-	for k, v := range sandboxConfig.GetAnnotations() {
-		// Assume there won't be conflict.
-		labels[fmt.Sprintf("%s%s", "wkpo_pod_annotation", k)] = v
-	}
+	//labels["WKPO"] = "bordel"
+	//for k, v := range sandboxConfig.GetAnnotations() {
+	//	// Assume there won't be conflict.
+	//	labels[fmt.Sprintf("%s%s", "wkpo_pod_annotation", k)] = v
+	//}
 
 	apiVersion, err := ds.getDockerAPIVersion()
 	if err != nil {
@@ -178,7 +178,6 @@ func (ds *dockerService) CreateContainer(_ context.Context, r *runtimeapi.Create
 			return nil, err
 		}
 		securityOpts = append(securityOpts, "credentialspec=file://"+filepath.Base(credFile.Name()))
-		labels["wkpo_done_with_if"] = "coucou"
 	}
 
 	hc.SecurityOpt = append(hc.SecurityOpt, securityOpts...)
