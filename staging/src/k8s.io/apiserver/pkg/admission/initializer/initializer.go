@@ -47,6 +47,7 @@ func New(
 	}
 }
 
+// TODO wkpo super interessant ca
 // Initialize checks the initialization interfaces implemented by a plugin
 // and provide the appropriate initialization data
 func (i pluginInitializer) Initialize(plugin admission.Interface) {
