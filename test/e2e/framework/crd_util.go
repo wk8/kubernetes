@@ -60,12 +60,17 @@ func CreateMultiVersionTestCRD(f *Framework, group string, apiVersions []apiexte
 		Failf("failed to load config: %v", err)
 		return nil, err
 	}
+	// TODO wkpo c peut etre ca qu'on veut?
 	apiExtensionClient, err := crdclientset.NewForConfig(config)
 	if err != nil {
 		Failf("failed to initialize apiExtensionClient: %v", err)
 		return nil, err
 	}
+	apiExtensionClient.ApiextensionsV1beta1().RESTClient()
+	apiExtensionClient.ServerResourcesForGroupVersion("wkpo")
+	apiExtensionClient.ApiextensionsV1beta1().CustomResourceDefinitions().Get()
 	dynamicClient, err := dynamic.NewForConfig(config)
+	dynamicClient.Resource().Get()
 	if err != nil {
 		Failf("failed to initialize dynamic client: %v", err)
 		return nil, err

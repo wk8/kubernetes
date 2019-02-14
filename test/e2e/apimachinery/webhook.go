@@ -166,6 +166,7 @@ var _ = SIGDescribe("AdmissionWebhook", func() {
 	})
 
 	It("Should mutate custom resource", func() {
+		// TODO wkpo icitte on cree une CRD
 		testcrd, err := framework.CreateTestCRD(f)
 		if err != nil {
 			return
@@ -1181,6 +1182,7 @@ func registerWebhookForCustomResource(f *framework.Framework, context *certConte
 	}
 }
 
+// TODO wkpo super interessant ca!
 func registerMutatingWebhookForCustomResource(f *framework.Framework, context *certContext, testcrd *framework.TestCrd) func() {
 	client := f.ClientSet
 	By("Registering the mutating webhook for a custom resource via the AdmissionRegistration API")

@@ -910,6 +910,7 @@ func TestNameConflict(t *testing.T) {
 
 	// Names are now accepted
 	err = wait.Poll(500*time.Millisecond, wait.ForeverTestTimeout, func() (bool, error) {
+		// TODO wkpo la on get?
 		crd, err := apiExtensionClient.ApiextensionsV1beta1().CustomResourceDefinitions().Get(noxu2Definition.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
