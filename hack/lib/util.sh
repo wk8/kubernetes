@@ -119,8 +119,7 @@ kube::util::host_os() {
       host_os=linux
       ;;
     *)
-      kube::log::error "Unsupported host OS.  Must be Linux or Mac OS X."
-      exit 1
+      host_os=windows
       ;;
   esac
   echo "${host_os}"
