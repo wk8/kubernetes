@@ -555,6 +555,10 @@ func NewSpecFromPersistentVolume(pv *v1.PersistentVolume, readOnly bool) *Spec {
 // This must be called exactly once before any New* methods are called on any
 // plugins.
 func (pm *VolumePluginMgr) InitPlugins(plugins []VolumePlugin, prober DynamicPluginProber, host VolumeHost) error {
+	klog.Errorf("wkpo on init plugins")
+	for _, p := range plugins {
+		klog.Errorf("wkpo plugin %s", p.GetPluginName())
+	}
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
