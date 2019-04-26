@@ -1,3 +1,5 @@
+// +build linux
+
 /*
 Copyright 2015 The Kubernetes Authors.
 
@@ -361,7 +363,7 @@ func (util *ISCSIUtil) AttachDisk(b iscsiDiskMounter) (string, error) {
 
 				err = updateISCSINode(b, tp)
 				if err != nil {
-					// failure to update node db is rare. But deleting record will likely impact those who already start using it.
+					// failure to update node db is rare. But deleting record will likely impact those who already started using it.
 					lastErr = fmt.Errorf("iscsi: failed to update iscsi node to portal %s error: %v", tp, err)
 					continue
 				}
