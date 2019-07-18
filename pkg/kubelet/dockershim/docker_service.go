@@ -214,8 +214,8 @@ func NewDockerService(config *ClientConfig, podSandboxImage string, streamingCon
 		checkpointManager:         checkpointManager,
 		startLocalStreamingServer: startLocalStreamingServer,
 		networkReady:              make(map[string]bool),
-		containerCleanupInfos:     make(map[string]*containerCleanupInfo),
 	}
+	ds.containerCleanupManager = newDockerContainerCleanupManager(ds)
 
 	// check docker version compatibility.
 	if err = ds.checkVersionCompatibility(); err != nil {
@@ -310,11 +310,9 @@ type dockerService struct {
 	// streaming server on localhost.
 	startLocalStreamingServer bool
 
-	// containerCleanupInfos maps container IDs to the `containerCleanupInfo` structs
-	// needed to clean up after containers have been started or removed.
-	// (see `applyPlatformSpecificDockerConfig` and `performPlatformSpecificContainerCleanup`
-	// methods for more info).
-	containerCleanupInfos map[string]*containerCleanupInfo
+	// containerCleanupManager is responsible to clean up after containers have been
+	// started or removed.
+	containerCleanupManager *containerCleanupManager
 }
 
 // TODO: handle context.
@@ -415,6 +413,11 @@ func (ds *dockerService) Start() error {
 			}
 		}()
 	}
+
+	go func() {
+		ds.containerCleanupManager.start(nil, nil)
+	}()
+
 	return ds.containerManager.Start()
 }
 
