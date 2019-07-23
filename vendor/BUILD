@@ -347,6 +347,7 @@ filegroup(
         "//vendor/github.com/vishvananda/netlink:all-srcs",
         "//vendor/github.com/vishvananda/netns:all-srcs",
         "//vendor/github.com/vmware/govmomi:all-srcs",
+        "//vendor/github.com/wk8/go-win-iscsidsc:all-srcs",
         "//vendor/github.com/xiang90/probing:all-srcs",
         "//vendor/go.uber.org/atomic:all-srcs",
         "//vendor/go.uber.org/multierr:all-srcs",

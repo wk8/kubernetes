@@ -13,7 +13,8 @@ go_library(
         "disk_manager.go",
         "doc.go",
         "iscsi.go",
-        "iscsi_util.go",
+        "iscsi_util_linux.go",
+        "iscsi_util_windows.go",
     ],
     importpath = "k8s.io/kubernetes/pkg/volume/iscsi",
     deps = [
@@ -27,17 +28,24 @@ go_library(
         "//staging/src/k8s.io/apimachinery/pkg/types:go_default_library",
         "//staging/src/k8s.io/apiserver/pkg/util/feature:go_default_library",
         "//vendor/k8s.io/klog:go_default_library",
-        "//vendor/k8s.io/utils/exec:go_default_library",
         "//vendor/k8s.io/utils/keymutex:go_default_library",
         "//vendor/k8s.io/utils/strings:go_default_library",
-    ],
+    ] + select({
+        "@io_bazel_rules_go//go/platform:linux": [
+            "//vendor/k8s.io/utils/exec:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:windows": [
+            "//vendor/github.com/wk8/go-win-iscsidsc:go_default_library",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 go_test(
     name = "go_default_test",
     srcs = [
         "iscsi_test.go",
-        "iscsi_util_test.go",
+        "iscsi_util_linux_test.go",
     ],
     embed = [":go_default_library"],
     deps = [

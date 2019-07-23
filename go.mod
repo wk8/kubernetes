@@ -136,7 +136,7 @@ require (
 	github.com/vishvananda/netlink v0.0.0-20171020171820-b2de5d10e38e
 	github.com/vishvananda/netns v0.0.0-20171111001504-be1fbeda1936 // indirect
 	github.com/vmware/govmomi v0.20.1
-	github.com/wk8/go-win-iscsidsc v0.0.0-20190723191510-4a829bcd8946 // indirect
+	github.com/wk8/go-win-iscsidsc v0.0.0-20190723191510-4a829bcd8946
 	github.com/xlab/handysort v0.0.0-20150421192137-fb3537ed64a1 // indirect
 	golang.org/x/crypto v0.0.0-20190611184440-5c40567a22f8
 	golang.org/x/lint v0.0.0-20181217174547-8f45f776aaf1
@@ -397,6 +397,7 @@ replace (
 	github.com/vishvananda/netlink => github.com/vishvananda/netlink v0.0.0-20171020171820-b2de5d10e38e
 	github.com/vishvananda/netns => github.com/vishvananda/netns v0.0.0-20171111001504-be1fbeda1936
 	github.com/vmware/govmomi => github.com/vmware/govmomi v0.20.1
+	github.com/wk8/go-win-iscsidsc => github.com/wk8/go-win-iscsidsc v0.0.0-20190723191510-4a829bcd8946
 	github.com/xiang90/probing => github.com/xiang90/probing v0.0.0-20160813154853-07dd2e8dfe18
 	github.com/xlab/handysort => github.com/xlab/handysort v0.0.0-20150421192137-fb3537ed64a1
 	github.com/xordataexchange/crypt => github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77
@@ -472,5 +473,3 @@ replace (
 	sigs.k8s.io/yaml => sigs.k8s.io/yaml v1.1.0
 	vbom.ml/util => vbom.ml/util v0.0.0-20160121211510-db5cfe13f5cc
 )
-
-replace github.com/wk8/go-win-iscsidsc => github.com/wk8/go-win-iscsidsc v0.0.0-20190723191510-4a829bcd8946

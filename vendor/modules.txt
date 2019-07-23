@@ -802,6 +802,8 @@ github.com/vmware/govmomi/vim25/progress
 github.com/vmware/govmomi/vim25/soap
 github.com/vmware/govmomi/vim25/types
 github.com/vmware/govmomi/vim25/xml
+# github.com/wk8/go-win-iscsidsc v0.0.0-20190723191510-4a829bcd8946 => github.com/wk8/go-win-iscsidsc v0.0.0-20190723191510-4a829bcd8946
+github.com/wk8/go-win-iscsidsc
 # github.com/xiang90/probing v0.0.0-20160813154853-07dd2e8dfe18 => github.com/xiang90/probing v0.0.0-20160813154853-07dd2e8dfe18
 github.com/xiang90/probing
 # go.uber.org/atomic v0.0.0-20181018215023-8dc6146f7569 => go.uber.org/atomic v0.0.0-20181018215023-8dc6146f7569
