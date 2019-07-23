@@ -22,6 +22,8 @@ import (
 	iscsidsc "github.com/wk8/go-win-iscsidsc"
 )
 
+// TODO wkpo un commit propre pour chaque dep, un autre pour le reste??
+
 type ISCSIUtil struct{}
 
 // MakeGlobalPDName returns path of global plugin dir
