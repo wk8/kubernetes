@@ -28,7 +28,7 @@ type ISCSIUtil struct{}
 
 // MakeGlobalPDName returns path of global plugin dir
 func (util *ISCSIUtil) MakeGlobalPDName(iscsi iscsiDisk) string {
-	return iscsidsc.Coucou
+	return ""
 }
 
 // MakeGlobalVDPDName returns path of global volume device plugin dir
@@ -46,7 +46,7 @@ func (util *ISCSIUtil) AttachDisk(b iscsiDiskMounter) (string, error) {
 // DetachDisk unmounts and detaches a volume from node
 func (util *ISCSIUtil) DetachDisk(c iscsiDiskUnmounter, mntPath string) error {
 	// TODO wkpo
-	return nil
+	return iscsidsc.NewWinAPICallError("wkpo", 12)
 }
 
 // DetachBlockISCSIDisk removes loopback device for a volume and detaches a volume from node
