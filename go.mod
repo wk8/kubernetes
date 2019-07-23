@@ -136,6 +136,7 @@ require (
 	github.com/vishvananda/netlink v0.0.0-20171020171820-b2de5d10e38e
 	github.com/vishvananda/netns v0.0.0-20171111001504-be1fbeda1936 // indirect
 	github.com/vmware/govmomi v0.20.1
+	github.com/wk8/go-win-iscsidsc v0.0.0-20190723191510-4a829bcd8946 // indirect
 	github.com/xlab/handysort v0.0.0-20150421192137-fb3537ed64a1 // indirect
 	golang.org/x/crypto v0.0.0-20190611184440-5c40567a22f8
 	golang.org/x/lint v0.0.0-20181217174547-8f45f776aaf1
@@ -471,3 +472,5 @@ replace (
 	sigs.k8s.io/yaml => sigs.k8s.io/yaml v1.1.0
 	vbom.ml/util => vbom.ml/util v0.0.0-20160121211510-db5cfe13f5cc
 )
+
+replace github.com/wk8/go-win-iscsidsc => github.com/wk8/go-win-iscsidsc v0.0.0-20190723191510-4a829bcd8946
