@@ -19,6 +19,10 @@ limitations under the License.
 package iscsi
 
 import (
+	"fmt"
+	"regexp"
+	"strings"
+
 	iscsidsc "github.com/wk8/go-win-iscsidsc"
 )
 
@@ -55,4 +59,48 @@ func (util *ISCSIUtil) DetachBlockISCSIDisk(c iscsiDiskUnmapper, mapPath string)
 	return nil
 }
 
-// TODO wkpo maybe need extractDeviceAndPrefix and extractIface and extractPortalAndIqn?
+// TODO wkpo what are these??
+
+func extractDeviceAndPrefix(mntPath string) (string, string, error) {
+	ind := strings.LastIndex(mntPath, "/")
+	if ind < 0 {
+		return "", "", fmt.Errorf("iscsi detach disk: malformatted mnt path: %s", mntPath)
+	}
+	device := mntPath[(ind + 1):]
+	// strip -lun- from mount path
+	ind = strings.LastIndex(mntPath, "-lun-")
+	if ind < 0 {
+		return "", "", fmt.Errorf("iscsi detach disk: malformatted mnt path: %s", mntPath)
+	}
+	prefix := mntPath[:ind]
+	return device, prefix, nil
+}
+
+var ifaceRe = regexp.MustCompile(`.+/iface-([^/]+)/.+`)
+
+func extractIface(mntPath string) (string, bool) {
+	reOutput := ifaceRe.FindStringSubmatch(mntPath)
+	if reOutput != nil {
+		return reOutput[1], true
+	}
+
+	return "", false
+}
+
+func extractPortalAndIqn(device string) (string, string, error) {
+	ind1 := strings.Index(device, "-")
+	if ind1 < 0 {
+		return "", "", fmt.Errorf("iscsi detach disk: no portal in %s", device)
+	}
+	portal := device[0:ind1]
+	ind2 := strings.Index(device, "iqn.")
+	if ind2 < 0 {
+		ind2 = strings.Index(device, "eui.")
+	}
+	if ind2 < 0 {
+		return "", "", fmt.Errorf("iscsi detach disk: no iqn in %s", device)
+	}
+	ind := strings.LastIndex(device, "-lun-")
+	iqn := device[ind2:ind]
+	return portal, iqn, nil
+}
