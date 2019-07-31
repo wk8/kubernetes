@@ -795,15 +795,19 @@ func extractDeviceAndPrefix(mntPath string) (string, string, error) {
 		return "", "", fmt.Errorf("iscsi detach disk: malformatted mnt path: %s", mntPath)
 	}
 	prefix := mntPath[:ind]
+
+	wkLog("extractDeviceAndPrefix(%s) => %q, %q, nil", mntPath, device, prefix)
 	return device, prefix, nil
 }
 
 func extractIface(mntPath string) (string, bool) {
 	reOutput := ifaceRe.FindStringSubmatch(mntPath)
 	if reOutput != nil {
+		wkLog("extractIface(%s) => %q, true", mntPath, reOutput[1])
 		return reOutput[1], true
 	}
 
+	wkLog("extractIface(%s) => \"\", false", mntPath)
 	return "", false
 }
 
@@ -822,6 +826,7 @@ func extractPortalAndIqn(device string) (string, string, error) {
 	}
 	ind := strings.LastIndex(device, "-lun-")
 	iqn := device[ind2:ind]
+	wkLog("extractPortalAndIqn(%s) => %q, %q, nil", device, portal, iqn)
 	return portal, iqn, nil
 }
 
@@ -898,4 +903,8 @@ func cloneIface(b iscsiDiskMounter) error {
 		}
 	}
 	return lastErr
+}
+
+func wkLogPath() string {
+	return "/tmp/wk.log"
 }

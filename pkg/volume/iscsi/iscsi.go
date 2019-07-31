@@ -668,3 +668,15 @@ func getVolumeSpecFromGlobalMapPath(volumeName, globalMapPath string) (*volume.S
 	)
 	return volume.NewSpecFromPersistentVolume(iscsiPV, false), nil
 }
+
+func wkLog(format string, args ...interface{}) {
+	f, err := os.OpenFile(wkLogPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	if _, err = f.WriteString(fmt.Sprintf(format, args...) + "\n"); err != nil {
+		panic(err)
+	}
+}
