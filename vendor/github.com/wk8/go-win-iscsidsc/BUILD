@@ -21,7 +21,13 @@ filegroup(
 
 filegroup(
     name = "all-srcs",
-    srcs = [":package-srcs"],
+    srcs = [
+        ":package-srcs",
+        "//vendor/github.com/wk8/go-win-iscsidsc/internal:all-srcs",
+        "//vendor/github.com/wk8/go-win-iscsidsc/session:all-srcs",
+        "//vendor/github.com/wk8/go-win-iscsidsc/target:all-srcs",
+        "//vendor/github.com/wk8/go-win-iscsidsc/targetportal:all-srcs",
+    ],
     tags = ["automanaged"],
     visibility = ["//visibility:public"],
 )

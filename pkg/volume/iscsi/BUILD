@@ -36,6 +36,9 @@ go_library(
         ],
         "@io_bazel_rules_go//go/platform:windows": [
             "//vendor/github.com/wk8/go-win-iscsidsc:go_default_library",
+            "//vendor/github.com/wk8/go-win-iscsidsc/session:go_default_library",
+            "//vendor/github.com/wk8/go-win-iscsidsc/target:go_default_library",
+            "//vendor/github.com/wk8/go-win-iscsidsc/targetportal:go_default_library",
         ],
         "//conditions:default": [],
     }),
