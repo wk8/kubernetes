@@ -20,7 +20,9 @@ package iscsi
 
 import (
 	"fmt"
+	"github.com/pkg/errors"
 	"regexp"
+	"strconv"
 	"strings"
 
 	iscsidsc "github.com/wk8/go-win-iscsidsc"
@@ -50,15 +52,168 @@ func (util *ISCSIUtil) MakeGlobalVDPDName(iscsi iscsiDisk) string {
 
 // AttachDisk returns devicePath of volume if attach succeeded otherwise returns error
 func (util *ISCSIUtil) AttachDisk(b iscsiDiskMounter) (string, error) {
-	// TODO wkpo
-	wkLog("AttachDisk(%v)", b)
-	targetportal.AddIScsiSendTargetPortal()
-	session.GetDevicesForIScsiSession()
-	target.LoginIscsiTarget()
+	if err := logIntoPortals(b); err != nil {
+		return "", err
+	}
 
-	// TODO wkpo oldies
-	wkLog("AttachDisk(%v)", b)
-	return "", iscsidsc.NewWinAPICallError("wkpo", 28)
+	sessionID, err := createOrFindSession(b)
+	if err != nil {
+		return "", err
+	}
+
+	device, err := findDevice(b, sessionID)
+	if err != nil {
+		return "", nil
+	}
+
+	if err = createVolumeIfNecessary(b, device); err != nil {
+		// TODO wkpo return from createVolumeIfNecessary directement?
+		return "", err
+	}
+}
+
+// TODO wkpo move to EOF
+// TODO wkpo name?
+// TODO wkpo comment?
+func createVolumeIfNecessary(b iscsiDiskMounter, device *iscsidsc.Device) error {
+
+}
+
+// logIntoPortals logs into all of the requested iSCSI portals.
+func logIntoPortals(b iscsiDiskMounter) error {
+	discoveryLoginOptions := &iscsidsc.LoginOptions{}
+	if b.chapDiscovery {
+		if err := addChapLoginOptions(b, discoveryLoginOptions, "discovery.sendtargets"); err != nil {
+			return err
+		}
+	}
+
+	// TODO wkpo c bon ca? multipath?
+	for _, portalName := range b.Portals {
+		portal := &iscsidsc.Portal{
+			SymbolicName: portalName,
+			Address:      portalName,
+			// TODO wkpo port?
+		}
+
+		// TODO wkpo security flags?
+		if err := targetportal.AddIScsiSendTargetPortal(nil, nil, discoveryLoginOptions, nil, portal); err != nil {
+			return errors.Wrapf(err, "Unable to log into iSCSI portal %q", portalName)
+		}
+	}
+
+	return nil
+}
+
+// TODO wkpo multipath?
+// createOrFindSession logs into the requested target and returns the ID of the newly created session;
+// or else if a session to that target already exists, retrieves its ID and returns it.
+func createOrFindSession(b iscsiDiskMounter) (*iscsidsc.SessionID, error) {
+	sessionLoginOptions := &iscsidsc.LoginOptions{}
+	if b.chapSession {
+		if err := addChapLoginOptions(b, sessionLoginOptions, "node.session"); err != nil {
+			return nil, err
+		}
+	}
+	sessionID, _, err := target.LoginIscsiTarget(b.Iqn, false, nil, nil, nil,
+		nil, sessionLoginOptions, nil, false)
+	if err != nil {
+		// TODO wkpo comment with relevant link...?
+		// TODO wkpo constant?
+		// TODO wkpo separate function?
+		if winAPIErr, ok := err.(*iscsidsc.WinAPICallError); ok && winAPIErr.HexCode() == "0xEFFF003F" {
+			// we're already logged into the target, let's find the existing session
+			sessions, err := session.GetIScsiSessionList()
+			if err != nil {
+				return nil, errors.Wrap(err, "Unable to get the list of existing iSCSI sessions")
+			}
+
+			for _, s := range sessions {
+				if s.TargetName == b.Iqn {
+					sessionID = &s.SessionID
+					break
+				}
+			}
+
+			if sessionID == nil {
+				// we didn't find an existing session for that target
+				return nil, fmt.Errorf("Unable to find existing iSCSI session for target %q", b.Iqn)
+			}
+		} else {
+			return nil, errors.Wrapf(err, "Unable to log into iSCSI target %q", b.Iqn)
+		}
+	}
+
+	return sessionID, nil
+}
+
+func addChapLoginOptions(b iscsiDiskMounter, loginOptions *iscsidsc.LoginOptions, secretPrefix string) error {
+	authType := iscsidsc.NoAuthAuthType
+	var (
+		username *string
+		password *string
+	)
+	if b.chapDiscovery {
+		authType = iscsidsc.CHAPAuthType
+		if u := b.secret[secretPrefix+".auth.username"]; len(u) > 0 {
+			username = &u
+		}
+		if p := b.secret[secretPrefix+".auth.password"]; len(p) > 0 {
+			password = &p
+		}
+
+		if len(b.secret[secretPrefix+".auth.username_in"]) > 0 ||
+			len(b.secret[secretPrefix+".auth.password_in"]) > 0 {
+			return fmt.Errorf("Mutual CHAP is not supported on Windows")
+		}
+	}
+
+	loginOptions.AuthType = &authType
+	loginOptions.Username = username
+	loginOptions.Password = password
+
+	return nil
+}
+
+// findDevice looks for the requested LUN amongst the ones proposed by the given iSCSI session.
+func findDevice(b iscsiDiskMounter, sessionID *iscsidsc.SessionID) (*iscsidsc.Device, error) {
+	devices, err := session.GetDevicesForIScsiSession(*sessionID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "Unable to get the list of devices for iSCI session %v on target %q",
+			*sessionID, b.Iqn)
+	}
+
+	// and look for the LUN we want
+	var device *iscsidsc.Device
+	lun, err := parseLun(b.Lun)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range devices {
+		if d.ScsiAddress.Lun == lun {
+			device = &d
+			break
+		}
+	}
+
+	if device == nil {
+		luns := make([]uint8, len(devices))
+		for i, d := range devices {
+			luns[i] = d.ScsiAddress.Lun
+		}
+		err = fmt.Errorf("Unable to find LUN %v on iSCSI target %q, found LUNS: %v",
+			lun, b.Iqn, luns)
+	}
+	return device, err
+}
+
+// TODO wkpo unit test with negative value?
+func parseLun(lunStr string) (uint8, error) {
+	lunInt64, err := strconv.ParseInt(lunStr, 10, 8)
+	if err != nil {
+		return 0, errors.Wrapf(err, "LUN is not an int8: %q", lunStr)
+	}
+	return uint8(lunInt64), nil
 }
 
 // DetachDisk unmounts and detaches a volume from node

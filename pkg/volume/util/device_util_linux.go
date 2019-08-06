@@ -29,6 +29,7 @@ import (
 	"k8s.io/klog"
 )
 
+// TODO wkpo on doit faire la meme pour win?
 // FindMultipathDeviceForDevice given a device name like /dev/sdx, find the devicemapper parent
 func (handler *deviceHandler) FindMultipathDeviceForDevice(device string) string {
 	io := handler.getIo

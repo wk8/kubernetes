@@ -62,6 +62,7 @@ const (
 	iscsiadmErrorSessExists = 15
 )
 
+// TODO wkpo needed for win too...? put in common? common constants in iscsi_util.go?
 var (
 	chapSt = []string{
 		"discovery.sendtargets.auth.username",
@@ -266,6 +267,7 @@ func scanOneLun(hostNumber int, lunNumber int) error {
 	return nil
 }
 
+// TODO wkpo on a besoin d'un truc comme ca aussi?
 func waitForMultiPathToExist(devicePaths []string, maxRetries int, deviceUtil volumeutil.DeviceUtil) string {
 	if 0 == len(devicePaths) {
 		return ""
@@ -273,7 +275,7 @@ func waitForMultiPathToExist(devicePaths []string, maxRetries int, deviceUtil vo
 
 	for i := 0; i < maxRetries; i++ {
 		for _, path := range devicePaths {
-			// There shouldnt be any empty device paths. However adding this check
+			// There shouldn't be any empty device paths. However adding this check
 			// for safer side to avoid the possibility of an empty entry.
 			if path == "" {
 				continue
@@ -317,6 +319,7 @@ func (util *ISCSIUtil) AttachDisk(b iscsiDiskMounter) (string, error) {
 		}
 	}
 
+	// TODO wkpo need that on win too?
 	// Lock the target while we login to avoid races between 2 volumes that share the same
 	// target both logging in or one logging out while another logs in.
 	b.plugin.targetLocks.LockKey(b.Iqn)
