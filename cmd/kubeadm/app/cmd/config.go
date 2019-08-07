@@ -244,7 +244,7 @@ func NewCmdConfigMigrate(out io.Writer) *cobra.Command {
 		`), kubeadmapiv1beta2.SchemeGroupVersion, kubeadmapiv1beta2.SchemeGroupVersion),
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(oldCfgPath) == 0 {
-				kubeadmutil.CheckErr(errors.New("The --old-config flag is mandatory"))
+				kubeadmutil.CheckErr(errors.New("the --old-config flag is mandatory"))
 			}
 
 			oldCfgBytes, err := ioutil.ReadFile(oldCfgPath)
@@ -321,7 +321,7 @@ func NewCmdConfigUploadFromFile(out io.Writer, kubeConfigFile *string) *cobra.Co
 		`), metav1.NamespaceSystem, constants.KubeadmConfigConfigMap),
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(cfgPath) == 0 {
-				kubeadmutil.CheckErr(errors.New("The --config flag is mandatory"))
+				kubeadmutil.CheckErr(errors.New("the --config flag is mandatory"))
 			}
 
 			klog.V(1).Infoln("[config] retrieving ClientSet from file")
@@ -438,7 +438,8 @@ func NewCmdConfigImagesPull() *cobra.Command {
 			kubeadmutil.CheckErr(err)
 			containerRuntime, err := utilruntime.NewContainerRuntime(utilsexec.New(), internalcfg.NodeRegistration.CRISocket)
 			kubeadmutil.CheckErr(err)
-			PullControlPlaneImages(containerRuntime, &internalcfg.ClusterConfiguration)
+			err = PullControlPlaneImages(containerRuntime, &internalcfg.ClusterConfiguration)
+			kubeadmutil.CheckErr(err)
 		},
 	}
 	AddImagesCommonConfigFlags(cmd.PersistentFlags(), externalClusterCfg, &cfgPath, &featureGatesString)
