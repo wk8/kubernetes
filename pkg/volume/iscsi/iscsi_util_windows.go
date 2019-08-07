@@ -20,11 +20,11 @@ package iscsi
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/pkg/errors"
 	iscsidsc "github.com/wk8/go-win-iscsidsc"
 	"github.com/wk8/go-win-iscsidsc/session"
 	"github.com/wk8/go-win-iscsidsc/target"
@@ -70,13 +70,20 @@ func (util *ISCSIUtil) AttachDisk(b iscsiDiskMounter) (string, error) {
 		// TODO wkpo return from createVolumeIfNecessary directement?
 		return "", err
 	}
+
+	return "", fmt.Errorf("wkpo bordel on a found device %v // %v // %v",
+		device, device.StorageDeviceNumber.DeviceNumber, device.StorageDeviceNumber)
 }
 
 // TODO wkpo move to EOF
 // TODO wkpo name?
 // TODO wkpo comment?
 func createVolumeIfNecessary(b iscsiDiskMounter, device *iscsidsc.Device) error {
-
+	//if out, err := b.exec.Run("Update-Disk", "-Number" ); err != nil {
+	//	//return errors.Wrapf(err, "Unable to update disk %v at LUN %v on target %q: %v",
+	//	//	TODO wkpo)
+	//}
+	return nil
 }
 
 // logIntoPortals logs into all of the requested iSCSI portals.
@@ -115,8 +122,10 @@ func createOrFindSession(b iscsiDiskMounter) (*iscsidsc.SessionID, error) {
 			return nil, err
 		}
 	}
+
 	sessionID, _, err := target.LoginIscsiTarget(b.Iqn, false, nil, nil, nil,
 		nil, sessionLoginOptions, nil, false)
+
 	if err != nil {
 		// TODO wkpo comment with relevant link...?
 		// TODO wkpo constant?
