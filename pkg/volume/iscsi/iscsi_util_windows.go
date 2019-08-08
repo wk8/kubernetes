@@ -52,27 +52,50 @@ func (util *ISCSIUtil) MakeGlobalVDPDName(iscsi iscsiDisk) string {
 
 // AttachDisk returns devicePath of volume if attach succeeded otherwise returns error
 func (util *ISCSIUtil) AttachDisk(b iscsiDiskMounter) (string, error) {
+	wkLog("entering AttachDisk(%v)", b)
+
 	if err := logIntoPortals(b); err != nil {
+		wkLog("on return err from loginIntoPortals: %v", err)
 		return "", err
 	}
+	wkLog("logged into portal!")
 
 	sessionID, err := createOrFindSession(b)
 	if err != nil {
+		wkLog("on return err from createOrFindSession: %v", err)
 		return "", err
 	}
+	wkLog("found session %v", sessionID)
 
 	device, err := findDevice(b, sessionID)
 	if err != nil {
-		return "", nil
+		wkLog("on return err from findDevice: %v", err)
+		return "", err
 	}
+	wkLog("found device with number %v : %v", device.StorageDeviceNumber.DeviceNumber, device)
 
 	if err = createVolumeIfNecessary(b, device); err != nil {
 		// TODO wkpo return from createVolumeIfNecessary directement?
+		wkLog("on return err from createVolumeIfNecessary: %v", err)
 		return "", err
 	}
 
-	return "", fmt.Errorf("wkpo bordel on a found device %v // %v // %v",
-		device, device.StorageDeviceNumber.DeviceNumber, device.StorageDeviceNumber)
+	wkpo2, wkpo3 := b.exec.Run("echo", "$PSVersionTable.PSVersion")
+	wkpo4, wkpo5 := b.exec.Run("powershell", "echo", "$PSVersionTable.PSVersion")
+
+	wkpo := fmt.Errorf("wkpo bordel on a found device %v // %v // %v //// and exec results: %v, %q // %v, %q",
+		device, device.StorageDeviceNumber.DeviceNumber, device.StorageDeviceNumber,
+		wkpo3, string(wkpo2), wkpo5, string(wkpo4))
+
+	wkLog("on return default error: %v", wkpo)
+	return "", wkpo
+}
+
+func wkpoPtrToStr(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
 }
 
 // TODO wkpo move to EOF
@@ -96,11 +119,18 @@ func logIntoPortals(b iscsiDiskMounter) error {
 	}
 
 	// TODO wkpo c bon ca? multipath?
-	for _, portalName := range b.Portals {
+	// see https://docs.okd.io/latest/install_config/persistent_storage/persistent_storage_iscsi.html#iscsi-multipath
+	// et aussi le flexvolume plugin?
+	for _, portaHostAndPort := range b.Portals {
+		portalName, port, err := parsePortalNameAndPort(portaHostAndPort)
+		if err != nil {
+			return err
+		}
+
 		portal := &iscsidsc.Portal{
-			SymbolicName: portalName,
+			SymbolicName: portaHostAndPort,
 			Address:      portalName,
-			// TODO wkpo port?
+			Socket:       port,
 		}
 
 		// TODO wkpo security flags?
@@ -110,6 +140,26 @@ func logIntoPortals(b iscsiDiskMounter) error {
 	}
 
 	return nil
+}
+
+// parsePortalNameAndPort parses a string of the form <host>:<port>, eg "10.88.59.27:3260" or "my-iscsi-box.internal:3260"
+// or just <host>, eg "10.88.59.27" or "my-iscsi-box.internal"
+func parsePortalNameAndPort(portaHostAndPort string) (string, *uint16, error) {
+	parts := strings.Split(portaHostAndPort, ":")
+	switch len(parts) {
+	case 1:
+		return parts[0], nil, nil
+	case 2:
+		// TODO wkpo negative?
+		portInt64, err := strconv.ParseInt(parts[1], 10, 16)
+		if err != nil {
+			return "", nil, errors.Wrapf(err, "Unable to parse port %q from %q as a 16-bit integer", parts[1], portaHostAndPort)
+		}
+		portUint16 := uint16(portInt64)
+		return parts[0], &portUint16, nil
+	default:
+		return "", nil, fmt.Errorf("Unexpected portal string: %q, should be of the form \"<host>\", or \"<host>:<port>\"", portaHostAndPort)
+	}
 }
 
 // TODO wkpo multipath?
@@ -123,6 +173,9 @@ func createOrFindSession(b iscsiDiskMounter) (*iscsidsc.SessionID, error) {
 		}
 	}
 
+	wkLog("on createOrFindSession with authtype: %v, username: %q and password: %q",
+		*sessionLoginOptions.AuthType, wkpoPtrToStr(sessionLoginOptions.Username),
+		wkpoPtrToStr(sessionLoginOptions.Password))
 	sessionID, _, err := target.LoginIscsiTarget(b.Iqn, false, nil, nil, nil,
 		nil, sessionLoginOptions, nil, false)
 
@@ -131,6 +184,7 @@ func createOrFindSession(b iscsiDiskMounter) (*iscsidsc.SessionID, error) {
 		// TODO wkpo constant?
 		// TODO wkpo separate function?
 		if winAPIErr, ok := err.(*iscsidsc.WinAPICallError); ok && winAPIErr.HexCode() == "0xEFFF003F" {
+			wkLog("already logged in, on search la session")
 			// we're already logged into the target, let's find the existing session
 			sessions, err := session.GetIScsiSessionList()
 			if err != nil {
@@ -153,30 +207,32 @@ func createOrFindSession(b iscsiDiskMounter) (*iscsidsc.SessionID, error) {
 		}
 	}
 
+	wkLog("return session ID: %v", sessionID)
 	return sessionID, nil
 }
 
 func addChapLoginOptions(b iscsiDiskMounter, loginOptions *iscsidsc.LoginOptions, secretPrefix string) error {
-	authType := iscsidsc.NoAuthAuthType
+	wkLog("on enter addChapLogionOptions avec prefix %q et secret %v",
+		secretPrefix, b.secret)
+
 	var (
 		username *string
 		password *string
 	)
-	if b.chapDiscovery {
-		authType = iscsidsc.CHAPAuthType
-		if u := b.secret[secretPrefix+".auth.username"]; len(u) > 0 {
-			username = &u
-		}
-		if p := b.secret[secretPrefix+".auth.password"]; len(p) > 0 {
-			password = &p
-		}
 
-		if len(b.secret[secretPrefix+".auth.username_in"]) > 0 ||
-			len(b.secret[secretPrefix+".auth.password_in"]) > 0 {
-			return fmt.Errorf("Mutual CHAP is not supported on Windows")
-		}
+	if u := b.secret[secretPrefix+".auth.username"]; len(u) > 0 {
+		username = &u
+	}
+	if p := b.secret[secretPrefix+".auth.password"]; len(p) > 0 {
+		password = &p
 	}
 
+	if len(b.secret[secretPrefix+".auth.username_in"]) > 0 ||
+		len(b.secret[secretPrefix+".auth.password_in"]) > 0 {
+		return fmt.Errorf("Mutual CHAP is not supported on Windows")
+	}
+
+	authType := iscsidsc.CHAPAuthType
 	loginOptions.AuthType = &authType
 	loginOptions.Username = username
 	loginOptions.Password = password

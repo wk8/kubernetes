@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -676,7 +677,7 @@ func wkLog(format string, args ...interface{}) {
 	}
 	defer f.Close()
 
-	if _, err = f.WriteString(fmt.Sprintf(format, args...) + "\n"); err != nil {
+	if _, err = f.WriteString("[" + time.Now().String() + "] " + fmt.Sprintf(format, args...) + "\n"); err != nil {
 		panic(err)
 	}
 }
