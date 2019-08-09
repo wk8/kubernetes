@@ -28,27 +28,19 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog"
-	"k8s.io/kubernetes/pkg/util/orderedmap"
 )
 
 type containerCleanupManager struct {
 	cleanupService containerCleanupService
-	// Those are the cleanup infos that haven't been triggered yet.
-	pendingCleanupInfos *orderedmap.OrderedMap
-	// Those are the cleanup infos that have been triggered, but have failed.
-	// We store them here to retry them later.
-	// A given container ID can only be present in one of the 2 maps at any one time.
-	failedCleanupInfos map[string]*containerCleanupInfoWithFailureCount
-	mutex              *sync.Mutex
+	cleanupInfos   map[string]*containerCleanupInfoWithMetadata
+	mutex          *sync.Mutex
 }
 
-type containerCleanupInfoWithTimestamp struct {
+type containerCleanupInfoWithMetadata struct {
 	cleanupInfo *containerCleanupInfo
-	timestamp   int64
-}
-
-type containerCleanupInfoWithFailureCount struct {
-	cleanupInfo  *containerCleanupInfo
+	// when this cleanup info was added to our state
+	timestamp int64
+	// how many times we've failed to actually run the cleanup associated
 	failureCount int
 }
 
@@ -60,10 +52,9 @@ type containerCleanupService interface {
 
 func newDockerContainerCleanupManager(cleanupService containerCleanupService) *containerCleanupManager {
 	return &containerCleanupManager{
-		cleanupService:      cleanupService,
-		pendingCleanupInfos: orderedmap.New(),
-		failedCleanupInfos:  make(map[string]*containerCleanupInfoWithFailureCount),
-		mutex:               &sync.Mutex{},
+		cleanupService: cleanupService,
+		cleanupInfos:   make(map[string]*containerCleanupInfoWithMetadata),
+		mutex:          &sync.Mutex{},
 	}
 }
 
@@ -84,11 +75,14 @@ func (cm *containerCleanupManager) start(stopChannel <-chan struct{}, tickChanne
 		cm.mutex.Lock()
 		defer cm.mutex.Unlock()
 
-		containerIDs := cm.unsafeRetryFailedCleanups()
-		containerIDs = append(containerIDs, cm.unsafeCleanupStaleContainerCleanupInfos()...)
+		containerIDsToCleanup := cm.unsafeContainerIDsToCleanupOnTick()
+
+		for _, containerID := range containerIDsToCleanup {
+			cm.unsafePerformCleanup(containerID)
+		}
 
 		if tickChannel != nil {
-			tickChannel <- containerIDs
+			tickChannel <- containerIDsToCleanup
 		}
 	}, staleContainerCleanupInterval, stopChannel)
 }
@@ -118,26 +112,40 @@ func (cm *containerCleanupManager) insert(containerID string, cleanupInfo *conta
 	cm.mutex.Lock()
 	defer cm.mutex.Unlock()
 
-	if _, present := cm.pendingCleanupInfos.Get(containerID); present {
-		// shouldn't happen, as we only insert at container creation time - but to err on the side of
-		// caution, let's delete from and re-insert into the ordered map to ensure that the order
-		// stays chronological
+	if withMetadata, present := cm.cleanupInfos[containerID]; present {
+		// shouldn't happen, as we only insert at container creation time
+		// but still, let's do the right thing if it does happen, and reset our state
 		klog.Errorf("duplicate cleanup info for container ID %q", containerID)
-		cm.pendingCleanupInfos.Delete(containerID)
+
+		withMetadata.cleanupInfo = cleanupInfo
+		withMetadata.timestamp = currentNanoTimestampFunc()
+		withMetadata.failureCount = 0
+	} else {
+		cm.cleanupInfos[containerID] = &containerCleanupInfoWithMetadata{
+			cleanupInfo: cleanupInfo,
+			timestamp:   currentNanoTimestampFunc(),
+		}
+	}
+}
+
+// containerIDsToCleanupOnTick returns the IDs of the container IDs to cleanup at every tick,
+// i.e. those that already have failed at least once, as well as those that have become stale.
+// It assumes that the manager's lock has already been acquired.
+func (cm *containerCleanupManager) unsafeContainerIDsToCleanupOnTick() []string {
+	timestampCutoff := currentNanoTimestampFunc() - int64(staleContainerCleanupInfoAge)
+	containerIDsToCleanup := make([]string, 0, len(cm.cleanupInfos))
+
+	for containerID, withMetadata := range cm.cleanupInfos {
+		if withMetadata.failureCount > 0 || withMetadata.timestamp <= timestampCutoff {
+			containerIDsToCleanup = append(containerIDsToCleanup, containerID)
+
+			if withMetadata.timestamp <= timestampCutoff {
+				klog.Warningf("performing stale clean up for container %q", containerID)
+			}
+		}
 	}
 
-	cm.pendingCleanupInfos.Set(containerID, &containerCleanupInfoWithTimestamp{
-		cleanupInfo: cleanupInfo,
-		timestamp:   currentNanoTimestampFunc(),
-	})
-
-	if withFailureCount, present := cm.failedCleanupInfos[containerID]; present {
-		// this shouldn't happen either for the same reason; but same as above, if
-		// it does happen let's log it and maintain a sane internal state
-		klog.Errorf("duplicate cleanup info for container ID %q - had already tried to clean it up %v times unsuccessfully",
-			containerID, withFailureCount.failureCount)
-		delete(cm.failedCleanupInfos, containerID)
-	}
+	return containerIDsToCleanup
 }
 
 // performCleanup cleans up the given containerID.
@@ -151,78 +159,20 @@ func (cm *containerCleanupManager) performCleanup(containerID string) {
 // unsafePerformCleanup is the same as performCleanup, but assumes the manager's lock has already
 // been acquired.
 func (cm *containerCleanupManager) unsafePerformCleanup(containerID string) {
-	if cleanupInfoWithTimestamp, present := cm.pendingCleanupInfos.Delete(containerID); present {
-		cleanupInfo := cleanupInfoWithTimestamp.(*containerCleanupInfoWithTimestamp).cleanupInfo
+	withMedata, present := cm.cleanupInfos[containerID]
+	if !present {
+		return
+	}
 
-		if errors := cm.cleanupService.performContainerCleanup(containerID, cleanupInfo); len(errors) != 0 {
-			cm.failedCleanupInfos[containerID] = &containerCleanupInfoWithFailureCount{
-				cleanupInfo:  cleanupInfo,
-				failureCount: 1,
-			}
-		}
+	if errors := cm.cleanupService.performContainerCleanup(containerID, withMedata.cleanupInfo); len(errors) == 0 {
+		// the clean up succeeded
+		delete(cm.cleanupInfos, containerID)
 	} else {
-		cm.unsafeRetryFailedCleanup(containerID)
-	}
-}
+		withMedata.failureCount++
 
-// unsafeRetryFailedCleanup re-tries running a clean up that has already failed earlier.
-// It assumes that the manager's lock has already been acquired.
-func (cm *containerCleanupManager) unsafeRetryFailedCleanup(containerID string) {
-	if cleanupInfoWithFailureCount, present := cm.failedCleanupInfos[containerID]; present {
-		if errors := cm.cleanupService.performContainerCleanup(containerID, cleanupInfoWithFailureCount.cleanupInfo); len(errors) == 0 {
-			delete(cm.failedCleanupInfos, containerID)
-		} else {
-			cleanupInfoWithFailureCount.failureCount++
-			if cleanupInfoWithFailureCount.failureCount >= maxFailures {
-				klog.Errorf("unable to clean up container %q, giving up after %v failures", containerID, cleanupInfoWithFailureCount.failureCount)
-				delete(cm.failedCleanupInfos, containerID)
-			}
+		if withMedata.failureCount >= maxFailures {
+			klog.Errorf("unable to clean up container %q, giving up after %v failures", containerID, withMedata.failureCount)
+			delete(cm.cleanupInfos, containerID)
 		}
 	}
-}
-
-// unsafeRetryFailedCleanups retries running clean ups that have failed before.
-// It assumes that the manager's lock has already been acquired.
-func (cm *containerCleanupManager) unsafeRetryFailedCleanups() []string {
-	containerIDsToCleanup := make([]string, len(cm.failedCleanupInfos))
-
-	i := 0
-	for containerID := range cm.failedCleanupInfos {
-		containerIDsToCleanup[i] = containerID
-		i++
-	}
-
-	for _, containerID := range containerIDsToCleanup {
-		cm.unsafeRetryFailedCleanup(containerID)
-	}
-
-	return containerIDsToCleanup
-}
-
-// unsafeCleanupStaleContainerCleanupInfos runs the clean up for clean up infos older than staleContainerCleanupInfoAge.
-// It assumes that the manager's lock has already been acquired.
-func (cm *containerCleanupManager) unsafeCleanupStaleContainerCleanupInfos() []string {
-	timestampCutoff := currentNanoTimestampFunc() - int64(staleContainerCleanupInfoAge)
-
-	containerIDsToCleanup := make([]string, 0, cm.pendingCleanupInfos.Len())
-
-	for pair := cm.pendingCleanupInfos.Oldest(); pair != nil; pair = pair.Next() {
-		cleanupInfoWithTimestamp := pair.Value.(*containerCleanupInfoWithTimestamp)
-
-		if cleanupInfoWithTimestamp.timestamp > timestampCutoff {
-			// this one is not old enough to be cleaned up yet, and all remaining ones are newer than this one, we're done
-			break
-		}
-
-		containerID := pair.Key.(string)
-		containerIDsToCleanup = append(containerIDsToCleanup, containerID)
-
-		klog.Warningf("performing stale clean up for container %q", containerID)
-	}
-
-	for _, containerID := range containerIDsToCleanup {
-		cm.unsafePerformCleanup(containerID)
-	}
-
-	return containerIDsToCleanup
 }
