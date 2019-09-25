@@ -735,7 +735,7 @@ func (g *genConversion) doMap(inType, outType *types.Type, sw *generator.Snippet
 			} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
 				sw.Do("if err := "+nameTmpl+"(&val, newVal, s); err != nil {\n", argsFromType(inType.Elem, outType.Elem))
 			} else {
-				sw.Do("// TODO: Inefficient conversion - can we improve it?\n", nil)
+				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
 				sw.Do("if err := s.Convert(&val, newVal, 0); err != nil {\n", nil)
 			}
 			sw.Do("return err\n", nil)
@@ -777,7 +777,7 @@ func (g *genConversion) doSlice(inType, outType *types.Type, sw *generator.Snipp
 				// we really don't know which package will have the conversion
 				// function defined.  This fires on basically every object
 				// conversion outside of pkg/api/v1.
-				sw.Do("// TODO: Inefficient conversion - can we improve it?\n", nil)
+				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
 				sw.Do("if err := s.Convert(&(*in)[i], &(*out)[i], 0); err != nil {\n", nil)
 			}
 			sw.Do("return err\n", nil)
@@ -891,7 +891,7 @@ func (g *genConversion) doStruct(inType, outType *types.Type, sw *generator.Snip
 			if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
 				sw.Do("if err := "+nameTmpl+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
 			} else {
-				sw.Do("// TODO: Inefficient conversion - can we improve it?\n", nil)
+				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
 				sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
 			}
 			sw.Do("return err\n", nil)
@@ -907,7 +907,7 @@ func (g *genConversion) doStruct(inType, outType *types.Type, sw *generator.Snip
 				if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
 					sw.Do("if err := "+nameTmpl+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
 				} else {
-					sw.Do("// TODO: Inefficient conversion - can we improve it?\n", nil)
+					sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
 					sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
 				}
 				sw.Do("return err\n", nil)
@@ -917,7 +917,7 @@ func (g *genConversion) doStruct(inType, outType *types.Type, sw *generator.Snip
 			if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
 				sw.Do("if err := "+nameTmpl+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
 			} else {
-				sw.Do("// TODO: Inefficient conversion - can we improve it?\n", nil)
+				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
 				sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
 			}
 			sw.Do("return err\n", nil)
@@ -955,7 +955,7 @@ func (g *genConversion) doPointer(inType, outType *types.Type, sw *generator.Sni
 		} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
 			sw.Do("if err := "+nameTmpl+"(*in, *out, s); err != nil {\n", argsFromType(inType.Elem, outType.Elem))
 		} else {
-			sw.Do("// TODO: Inefficient conversion - can we improve it?\n", nil)
+			sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
 			sw.Do("if err := s.Convert(*in, *out, 0); err != nil {\n", nil)
 		}
 		sw.Do("return err\n", nil)

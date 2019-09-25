@@ -561,6 +561,10 @@ generated_files gen_openapi:
 	$(MAKE) -f Makefile.generated_files $@ CALLED_FROM_MAIN_MAKEFILE=1
 endif
 
+wkpo:
+	$(MAKE) -f Makefile.generated_files gen_conversion CALLED_FROM_MAIN_MAKEFILE=1
+	_output/bin/conversion-gen -v 7 --extra-peer-dirs k8s.io/kubernetes/pkg/apis/core,k8s.io/kubernetes/pkg/apis/core/v1,k8s.io/api/core/v1 -O zz_generated.conversion -i k8s.io/kubernetes/pkg/apis/extensions/v1beta1
+
 define HELP_INFO
 # Print make targets and help info
 #

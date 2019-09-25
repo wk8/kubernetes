@@ -349,19 +349,7 @@ $(shell rm -f $(META_DIR)/$(CONVERSION_GEN).todo)
 # in a single run of the tool.
 .PHONY: gen_conversion
 gen_conversion: $(CONVERSION_GEN) $(META_DIR)/$(CONVERSION_GEN).todo
-	if [[ -s $(META_DIR)/$(CONVERSION_GEN).todo ]]; then                 \
-	    pkgs=$$(cat $(META_DIR)/$(CONVERSION_GEN).todo | paste -sd, -);  \
-	    if [[ "$(DBG_CODEGEN)" == 1 ]]; then                             \
-	        echo "DBG: running $(CONVERSION_GEN) for $$pkgs";            \
-	    fi;                                                              \
-	    ./hack/run-in-gopath.sh $(CONVERSION_GEN)                        \
-	        --extra-peer-dirs $(CONVERSION_EXTRA_PEER_DIRS)              \
-	        --v $(KUBE_VERBOSE)                                          \
-	        --logtostderr                                                \
-	        -i "$$pkgs"                                                  \
-	        -O $(CONVERSION_BASENAME)                                    \
-	        "$$@";                                                       \
-	fi
+	echo "wkpo $(CONVERSION_GEN) --extra-peer-dirs $(CONVERSION_EXTRA_PEER_DIRS) --v $(KUBE_VERBOSE) -O $(CONVERSION_BASENAME)  // $$@"
 
 # For each dir in CONVERSION_DIRS, this establishes a dependency between the
 # output file and the input files that should trigger a rebuild.
