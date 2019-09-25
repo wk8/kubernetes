@@ -17,7 +17,6 @@ limitations under the License.
 package generators
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -40,15 +39,11 @@ const (
 	// import path of the package the peer types are defined in.
 	// e.g., "+k8s:conversion-gen=false" in a type's comment will let
 	// conversion-gen skip that type.
-	tagName = "k8s:conversion-gen"
+	// tagName = "k8s:conversion-gen"
 	// e.g., "+k8s:conversion-gen-external-types=<type-pkg>" in doc.go, where
 	// <type-pkg> is the relative path to the package the types are defined in.
 	externalTypesTagName = "k8s:conversion-gen-external-types"
 )
-
-func extractTag(comments []string) []string {
-	return types.ExtractCommentTags("+", comments)[tagName]
-}
 
 func extractExternalTypesTag(comments []string) []string {
 	return types.ExtractCommentTags("+", comments)[externalTypesTagName]
@@ -99,8 +94,8 @@ func DefaultNameSystem() string {
 	return "public"
 }
 
-func getPeerTypeFor(context *generator.Context, t *types.Type, potenialPeerPkgs []string) *types.Type {
-	for _, ppp := range potenialPeerPkgs {
+func getPeerTypeFor(context *generator.Context, t *types.Type, potentialPeerPkgs []string) *types.Type {
+	for _, ppp := range potentialPeerPkgs {
 		p := context.Universe.Package(ppp)
 		if p == nil {
 			continue
@@ -112,82 +107,9 @@ func getPeerTypeFor(context *generator.Context, t *types.Type, potenialPeerPkgs 
 	return nil
 }
 
-type conversionPair struct {
-	inType  *types.Type
-	outType *types.Type
-}
-
 // All of the types in conversions map are of type "DeclarationOf" with
 // the underlying type being "Func".
 type conversionFuncMap map[conversionPair]*types.Type
-
-// Returns all manually-defined conversion functions in the package.
-func getManualConversionFunctions(context *generator.Context, pkg *types.Package, manualMap conversionFuncMap) {
-	if pkg == nil {
-		klog.Warningf("Skipping nil package passed to getManualConversionFunctions")
-		return
-	}
-	klog.V(5).Infof("Scanning for conversion functions in %v", pkg.Name)
-
-	scopeName := types.Ref(conversionPackagePath, "Scope").Name
-	errorName := types.Ref("", "error").Name
-	buffer := &bytes.Buffer{}
-	sw := generator.NewSnippetWriter(buffer, context, "$", "$")
-
-	for _, f := range pkg.Functions {
-		if f.Underlying == nil || f.Underlying.Kind != types.Func {
-			klog.Errorf("Malformed function: %#v", f)
-			continue
-		}
-		if f.Underlying.Signature == nil {
-			klog.Errorf("Function without signature: %#v", f)
-			continue
-		}
-		klog.V(8).Infof("Considering function %s", f.Name)
-		signature := f.Underlying.Signature
-		// Check whether the function is conversion function.
-		// Note that all of them have signature:
-		// func Convert_inType_To_outType(inType, outType, conversion.Scope) error
-		if signature.Receiver != nil {
-			klog.V(8).Infof("%s has a receiver", f.Name)
-			continue
-		}
-		if len(signature.Parameters) != 3 || signature.Parameters[2].Name != scopeName {
-			klog.V(8).Infof("%s has wrong parameters", f.Name)
-			continue
-		}
-		if len(signature.Results) != 1 || signature.Results[0].Name != errorName {
-			klog.V(8).Infof("%s has wrong results", f.Name)
-			continue
-		}
-		inType := signature.Parameters[0]
-		outType := signature.Parameters[1]
-		if inType.Kind != types.Pointer || outType.Kind != types.Pointer {
-			klog.V(8).Infof("%s has wrong parameter types", f.Name)
-			continue
-		}
-		// Now check if the name satisfies the convention.
-		// TODO: This should call the Namer directly.
-		args := argsFromType(inType.Elem, outType.Elem)
-		sw.Do("Convert_$.inType|public$_To_$.outType|public$", args)
-		if f.Name.Name == buffer.String() {
-			klog.V(4).Infof("Found conversion function %s", f.Name)
-			key := conversionPair{inType.Elem, outType.Elem}
-			// We might scan the same package twice, and that's OK.
-			if v, ok := manualMap[key]; ok && v != nil && v.Name.Package != pkg.Path {
-				panic(fmt.Sprintf("duplicate static conversion defined: %s -> %s from:\n%s.%s\n%s.%s", key.inType, key.outType, v.Name.Package, v.Name.Name, f.Name.Package, f.Name.Name))
-			}
-			manualMap[key] = f
-		} else {
-			// prevent user error when they don't get the correct conversion signature
-			if strings.HasPrefix(f.Name.Name, "Convert_") {
-				klog.Errorf("Rename function %s %s -> %s to match expected conversion signature", f.Name.Package, f.Name.Name, buffer.String())
-			}
-			klog.V(8).Infof("%s has wrong name", f.Name)
-		}
-		buffer.Reset()
-	}
-}
 
 func Packages(context *generator.Context, arguments *args.GeneratorArgs) generator.Packages {
 	boilerplate, err := arguments.LoadGoBoilerplate()
@@ -502,38 +424,6 @@ func (n *namerPlusImportTracking) Name(t *types.Type) string {
 	return n.delegate.Name(t)
 }
 
-func (g *genConversion) convertibleOnlyWithinPackage(inType, outType *types.Type) bool {
-	var t *types.Type
-	var other *types.Type
-	if inType.Name.Package == g.typesPackage {
-		t, other = inType, outType
-	} else {
-		t, other = outType, inType
-	}
-
-	if t.Name.Package != g.typesPackage {
-		return false
-	}
-	// If the type has opted out, skip it.
-	tagvals := extractTag(t.CommentLines)
-	if tagvals != nil {
-		if tagvals[0] != "false" {
-			klog.Fatalf("Type %v: unsupported %s value: %q", t, tagName, tagvals[0])
-		}
-		klog.V(5).Infof("type %v requests no conversion generation, skipping", t)
-		return false
-	}
-	// TODO: Consider generating functions for other kinds too.
-	if t.Kind != types.Struct {
-		return false
-	}
-	// Also, filter out private types.
-	if namer.IsPrivateGoName(other.Name.Name) {
-		return false
-	}
-	return true
-}
-
 func (g *genConversion) Filter(c *generator.Context, t *types.Type) bool {
 	peerType := getPeerTypeFor(c, t, g.peerPackages)
 	if peerType == nil {
@@ -566,15 +456,6 @@ func (g *genConversion) Imports(c *generator.Context) (imports []string) {
 	}
 	return importLines
 }
-
-func argsFromType(inType, outType *types.Type) generator.Args {
-	return generator.Args{
-		"inType":  inType,
-		"outType": outType,
-	}
-}
-
-const nameTmpl = "Convert_$.inType|publicIT$_To_$.outType|publicIT$"
 
 func (g *genConversion) preexists(inType, outType *types.Type) (*types.Type, bool) {
 	function, ok := g.manualConversions[conversionPair{inType, outType}]

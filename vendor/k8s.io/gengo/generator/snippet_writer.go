@@ -26,6 +26,7 @@ import (
 // SnippetWriter is an attempt to make the template library usable.
 // Methods are chainable, and you don't have to check Error() until you're all
 // done.
+// TODO wkpo il est used le context???
 type SnippetWriter struct {
 	w       io.Writer
 	context *Context
