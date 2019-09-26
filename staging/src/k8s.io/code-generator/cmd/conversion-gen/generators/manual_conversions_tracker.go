@@ -13,11 +13,6 @@ import (
 	"k8s.io/gengo/types"
 )
 
-type conversionPair struct {
-	inType  *types.Type
-	outType *types.Type
-}
-
 // a ManualConversionsTracker keeps track of manually defined conversion functions.
 type ManualConversionsTracker struct {
 	// see the explanation on ConversionGenerator.additionalConversionArguments.
@@ -125,10 +120,16 @@ func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, bu
 	buffer.Reset()
 	// TODO wkpo le namer la.... il vient d'ou? du context? si oui er... comment on s'assure que le contexte a le bon namer? peut etre en l'ajoutant aux namers du generator?
 	// TODO wkpo try renaming it to wkpo
+	// TODO wkpo peut etre plus propre de passer un namer directement?
 	snippetWriter.Do(conversionFunctionNameTemplate("public"), argsFromType(inType.Elem, outType.Elem))
 	if function.Name.Name != buffer.String() {
 		return false, nil, nil
 	}
 
 	return true, inType, outType
+}
+
+func (t *ManualConversionsTracker) preexists(inType, outType *types.Type) (*types.Type, bool) {
+	function, ok := t.conversionFunctions[conversionPair{inType, outType}]
+	return function, ok
 }

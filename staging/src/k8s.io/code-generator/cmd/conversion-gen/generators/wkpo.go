@@ -30,9 +30,14 @@ type ConversionGenerator struct {
 	peerPackages []string
 	// manualConversionsTracker finds and caches which manually defined exist.
 	manualConversionsTracker *ManualConversionsTracker
+	// memoryLayoutComparator allows comparing types' memory layouts to decide whether
+	// to use unsafe conversions.
+	memoryLayoutComparator memoryLayoutComparator
 
 	// see comment on WithTagName
 	tagName string
+	// see comment on WithFunctionTagName
+	functionTagName string
 	// see comment on WithAdditionalConversionArguments
 	additionalConversionArguments map[string]*types.Type
 }
@@ -84,10 +89,19 @@ func (g *ConversionGenerator) WithAdditionalConversionArguments(additionalConver
 
 // WithTagName allows setting the tag name, ie the marker that this generator
 // will look for in comments on types or in doc.go.
-// e.g., "<tag-name>=<peer-pkg>" in doc.go, where <peer-pkg> is the import path of the package the peer types are defined in.
-// or "<tag-name>=false" in a type's comment will let conversion-gen skip that type.
+// * "<tag-name>=<peer-pkg>" in doc.go, where <peer-pkg> is the import path of the package the peer types are defined in.
+// * "<tag-name>=false" in a type's comment will let conversion-gen skip that type.
 func (g *ConversionGenerator) WithTagName(tagName string) *ConversionGenerator {
 	g.tagName = tagName
+	return g
+}
+
+// WithFunctionTagName allows setting the function tag name, ie the marker that this generator
+// will look for in comments on functions. In a function's comments:
+// * "<tag-name>=copy-only" means TODO wkpo
+// * "<tag-name>=drop" means TODO wkpo
+func (g *ConversionGenerator) WithFunctionTagName(functionTagName string) *ConversionGenerator {
+	g.functionTagName = functionTagName
 	return g
 }
 
@@ -97,6 +111,18 @@ func (g *ConversionGenerator) WithTagName(tagName string) *ConversionGenerator {
 // notably for peer packages, which often are the same across multiple generators.
 func (g *ConversionGenerator) WithManualConversionsTracker(tracker *ManualConversionsTracker) *ConversionGenerator {
 	g.manualConversionsTracker = tracker
+	return g
+}
+
+// WithoutUnsafe allows disabling the use of unsafe conversions between types that share
+// the same memory layouts.
+func (g *ConversionGenerator) WithoutUnsafe() *ConversionGenerator {
+	g.memoryLayoutComparator = nil
+	return g
+}
+
+// TODO wkpo!!!
+func (g *ConversionGenerator) WithExternalPackageConversionHandler() *ConversionGenerator {
 	return g
 }
 
@@ -183,8 +209,263 @@ func (g *ConversionGenerator) generateFor(inType, outType *types.Type, snippetWr
 	f(inType, outType, snippetWriter)
 }
 
-// TODO wkpo next from here! ^ and remove all functions from conversion.go
-// TODO wkpo next need errors?
+// TODO wkpo replace all sw s with textmate
+
+func (g *ConversionGenerator) doBuiltin(inType, outType *types.Type, sw *generator.SnippetWriter) {
+	if inType == outType {
+		sw.Do("*out = *in\n", nil)
+	} else {
+		sw.Do("*out = $.|raw$(*in)\n", outType)
+	}
+}
+
+func (g *ConversionGenerator) doMap(inType, outType *types.Type, sw *generator.SnippetWriter) {
+	sw.Do("*out = make($.|raw$, len(*in))\n", outType)
+	if isDirectlyAssignable(inType.Key, outType.Key) {
+		sw.Do("for key, val := range *in {\n", nil)
+		if isDirectlyAssignable(inType.Elem, outType.Elem) {
+			if inType.Key == outType.Key {
+				sw.Do("(*out)[key] = ", nil)
+			} else {
+				sw.Do("(*out)[$.|raw$(key)] = ", outType.Key)
+			}
+			if inType.Elem == outType.Elem {
+				sw.Do("val\n", nil)
+			} else {
+				sw.Do("$.|raw$(val)\n", outType.Elem)
+			}
+		} else {
+			sw.Do("newVal := new($.|raw$)\n", outType.Elem)
+			if function, ok := g.preexists(inType.Elem, outType.Elem); ok {
+				sw.Do("if err := $.|raw$(&val, newVal, s); err != nil {\n", function)
+			} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
+
+				sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&val, newVal, s); err != nil {\n",
+					argsFromType(inType.Elem, outType.Elem))
+			} else {
+				// TODO wkpo !!!! external conversion func!
+				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
+				sw.Do("if err := s.Convert(&val, newVal, 0); err != nil {\n", nil)
+			}
+			sw.Do("return err\n", nil)
+			sw.Do("}\n", nil)
+			if inType.Key == outType.Key {
+				sw.Do("(*out)[key] = *newVal\n", nil)
+			} else {
+				sw.Do("(*out)[$.|raw$(key)] = *newVal\n", outType.Key)
+			}
+		}
+	} else {
+		// TODO: Implement it when necessary.
+		sw.Do("for range *in {\n", nil)
+		sw.Do("// FIXME: Converting unassignable keys unsupported $.|raw$\n", inType.Key)
+	}
+	sw.Do("}\n", nil)
+}
+
+func (g *ConversionGenerator) doSlice(inType, outType *types.Type, sw *generator.SnippetWriter) {
+	sw.Do("*out = make($.|raw$, len(*in))\n", outType)
+	if inType.Elem == outType.Elem && inType.Elem.Kind == types.Builtin {
+		sw.Do("copy(*out, *in)\n", nil)
+	} else {
+		sw.Do("for i := range *in {\n", nil)
+		if isDirectlyAssignable(inType.Elem, outType.Elem) {
+			if inType.Elem == outType.Elem {
+				sw.Do("(*out)[i] = (*in)[i]\n", nil)
+			} else {
+				sw.Do("(*out)[i] = $.|raw$((*in)[i])\n", outType.Elem)
+			}
+		} else {
+			if function, ok := g.preexists(inType.Elem, outType.Elem); ok {
+				sw.Do("if err := $.|raw$(&(*in)[i], &(*out)[i], s); err != nil {\n", function)
+			} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
+				sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&(*in)[i], &(*out)[i], s); err != nil {\n",
+					argsFromType(inType.Elem, outType.Elem))
+			} else {
+				// TODO wkpo !!!! external conversion func!
+				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
+				sw.Do("if err := s.Convert(&(*in)[i], &(*out)[i], 0); err != nil {\n", nil)
+			}
+			sw.Do("return err\n", nil)
+			sw.Do("}\n", nil)
+		}
+		sw.Do("}\n", nil)
+	}
+}
+
+func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generator.SnippetWriter) {
+	for _, inMember := range inType.Members {
+		if g.optedOut(inMember) {
+			// This field is excluded from conversion.
+			sw.Do("// INFO: in."+inMember.Name+" opted out of conversion generation\n", nil)
+			continue
+		}
+		outMember, found := findMember(outType, inMember.Name)
+		if !found {
+			// This field doesn't exist in the peer.
+			// TODO wkpo missing field!!
+			sw.Do("// WARNING: in."+inMember.Name+" requires manual conversion: does not exist in peer-type\n", nil)
+			g.skippedFields[inType] = append(g.skippedFields[inType], inMember.Name)
+			continue
+		}
+
+		inMemberType, outMemberType := inMember.Type, outMember.Type
+		// create a copy of both underlying types but give them the top level alias name (since aliases
+		// are assignable)
+		if underlying := unwrapAlias(inMemberType); underlying != inMemberType {
+			copied := *underlying
+			copied.Name = inMemberType.Name
+			inMemberType = &copied
+		}
+		if underlying := unwrapAlias(outMemberType); underlying != outMemberType {
+			copied := *underlying
+			copied.Name = outMemberType.Name
+			outMemberType = &copied
+		}
+
+		args := argsFromType(inMemberType, outMemberType).With("name", inMember.Name)
+
+		// try a direct memory copy for any type that has exactly equivalent values
+		if g.sameMemoryLayout(inMemberType, outMemberType) {
+			args = args.With("Pointer", types.Ref("unsafe", "Pointer"))
+			switch inMemberType.Kind {
+			case types.Pointer:
+				sw.Do("out.$.name$ = ($.outType|raw$)($.Pointer|raw$(in.$.name$))\n", args)
+				continue
+			case types.Map:
+				sw.Do("out.$.name$ = *(*$.outType|raw$)($.Pointer|raw$(&in.$.name$))\n", args)
+				continue
+			case types.Slice:
+				sw.Do("out.$.name$ = *(*$.outType|raw$)($.Pointer|raw$(&in.$.name$))\n", args)
+				continue
+			}
+		}
+
+		// check based on the top level name, not the underlying names
+		if function, ok := g.preexists(inMember.Type, outMember.Type); ok {
+			if g.functionHasTag(function, "drop") {
+				continue
+			}
+			// copy-only functions that are directly assignable can be inlined instead of invoked.
+			// As an example, conversion functions exist that allow types with private fields to be
+			// correctly copied between types. These functions are equivalent to a memory assignment,
+			// and are necessary for the reflection path, but should not block memory conversion.
+			// Convert_unversioned_Time_to_unversioned_Time is an example of this logic.
+			if !g.functionHasTag(function, "copy-only") || !isFastConversion(inMemberType, outMemberType) {
+				args["function"] = function
+				sw.Do("if err := $.function|raw$(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
+				sw.Do("return err\n", nil)
+				sw.Do("}\n", nil)
+				continue
+			}
+			klog.V(5).Infof("Skipped function %s because it is copy-only and we can use direct assignment", function.Name)
+		}
+
+		// If we can't auto-convert, punt before we emit any code.
+		if inMemberType.Kind != outMemberType.Kind {
+			sw.Do("// WARNING: in."+inMember.Name+" requires manual conversion: inconvertible types ("+
+				inMemberType.String()+" vs "+outMemberType.String()+")\n", nil)
+			g.skippedFields[inType] = append(g.skippedFields[inType], inMember.Name)
+			// TODO wkpo missing fields!
+			continue
+		}
+
+		switch inMemberType.Kind {
+		case types.Builtin:
+			if inMemberType == outMemberType {
+				sw.Do("out.$.name$ = in.$.name$\n", args)
+			} else {
+				sw.Do("out.$.name$ = $.outType|raw$(in.$.name$)\n", args)
+			}
+		case types.Map, types.Slice, types.Pointer:
+			if isDirectlyAssignable(inMemberType, outMemberType) {
+				sw.Do("out.$.name$ = in.$.name$\n", args)
+				continue
+			}
+
+			sw.Do("if in.$.name$ != nil {\n", args)
+			sw.Do("in, out := &in.$.name$, &out.$.name$\n", args)
+			g.generateFor(inMemberType, outMemberType, sw)
+			sw.Do("} else {\n", nil)
+			sw.Do("out.$.name$ = nil\n", args)
+			sw.Do("}\n", nil)
+		case types.Struct:
+			if isDirectlyAssignable(inMemberType, outMemberType) {
+				sw.Do("out.$.name$ = in.$.name$\n", args)
+				continue
+			}
+			if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
+				sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
+			} else {
+				// TODO wkpo external conversion handler!!
+				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
+				sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
+			}
+			sw.Do("return err\n", nil)
+			sw.Do("}\n", nil)
+		case types.Alias:
+			if isDirectlyAssignable(inMemberType, outMemberType) {
+				if inMemberType == outMemberType {
+					sw.Do("out.$.name$ = in.$.name$\n", args)
+				} else {
+					sw.Do("out.$.name$ = $.outType|raw$(in.$.name$)\n", args)
+				}
+			} else {
+				if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
+					sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
+				} else {
+					// TODO wkpo external conversion handler!!
+					sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
+					sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
+				}
+				sw.Do("return err\n", nil)
+				sw.Do("}\n", nil)
+			}
+		default:
+			if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
+				sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
+			} else {
+				// TODO wkpo external conversion handler!!
+				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
+				sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
+			}
+			sw.Do("return err\n", nil)
+			sw.Do("}\n", nil)
+		}
+	}
+}
+
+func (g *ConversionGenerator) doPointer(inType, outType *types.Type, sw *generator.SnippetWriter) {
+	sw.Do("*out = new($.Elem|raw$)\n", outType)
+	if isDirectlyAssignable(inType.Elem, outType.Elem) {
+		if inType.Elem == outType.Elem {
+			sw.Do("**out = **in\n", nil)
+		} else {
+			sw.Do("**out = $.|raw$(**in)\n", outType.Elem)
+		}
+	} else {
+		if function, ok := g.preexists(inType.Elem, outType.Elem); ok {
+			sw.Do("if err := $.|raw$(*in, *out, s); err != nil {\n", function)
+		} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
+			sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(*in, *out, s); err != nil {\n", argsFromType(inType.Elem, outType.Elem))
+		} else {
+			// TODO wkpo external conversion handler!!
+			sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
+			sw.Do("if err := s.Convert(*in, *out, 0); err != nil {\n", nil)
+		}
+		sw.Do("return err\n", nil)
+		sw.Do("}\n", nil)
+	}
+}
+
+func (g *genConversion) doAlias(inType, outType *types.Type, sw *generator.SnippetWriter) {
+	// TODO: Add support for aliases.
+	g.doUnknown(inType, outType, sw)
+}
+
+func (g *genConversion) doUnknown(inType, outType *types.Type, sw *generator.SnippetWriter) {
+	sw.Do("// FIXME: Type $.|raw$ is unsupported.\n", inType)
+}
 
 func (g *ConversionGenerator) getPeerTypeFor(t *types.Type) *types.Type {
 	for _, peerPkgPath := range g.peerPackages {
@@ -207,7 +488,7 @@ func (g *ConversionGenerator) convertibleOnlyWithinPackage(inType, outType *type
 		return false
 	}
 
-	if g.typeOptedOut(t) {
+	if g.optedOut(t) {
 		klog.V(5).Infof("type %v requests no conversion generation, skipping", t)
 		return false
 	}
@@ -216,24 +497,20 @@ func (g *ConversionGenerator) convertibleOnlyWithinPackage(inType, outType *type
 		!namer.IsPrivateGoName(other.Name.Name) // filter out private types
 }
 
-// TODO wkpo used?
-func (g *ConversionGenerator) manualConversionTracker() *ManualConversionsTracker {
-	if g.manualConversionsTracker == nil {
-		additionalConversionArguments := make([]*types.Type, len(g.additionalConversionArguments))
-		i := 0
-		for _, paramType := range g.additionalConversionArguments {
-			additionalConversionArguments[i] = paramType
-		}
-
-		g.manualConversionsTracker = NewManualConversionsTracker(additionalConversionArguments...)
+// optedOut returns true iff type (or member) t has a comment tag of the form "<tag-name>=false"
+// indicating that it's opting out of the conversion generation.
+func (g *ConversionGenerator) optedOut(t interface{}) bool {
+	var commentLines []string
+	switch in := t.(type) {
+	case *types.Type:
+		commentLines = in.CommentLines
+	case types.Member:
+		commentLines = in.CommentLines
+	default:
+		klog.Fatalf("don't know how to extract comment lines from %#v", t)
 	}
-	return g.manualConversionsTracker
-}
 
-// typeOptedOut iff type t has a comment tag of the form "<tag-name>=false" indicating that
-// it's opting out of the conversion generation.
-func (g *ConversionGenerator) typeOptedOut(t *types.Type) bool {
-	tagVals := g.extractTag(t.CommentLines)
+	tagVals := g.extractTag(commentLines)
 	if len(tagVals) > 0 {
 		if tagVals[0] != "false" {
 			klog.Fatalf(fmt.Sprintf("Type %v: unsupported %s value: %q", t, g.tagName, tagVals[0]))
@@ -252,8 +529,38 @@ func (g *ConversionGenerator) extractTag(comments []string) []string {
 	return types.ExtractCommentTags("+", comments)[g.tagName]
 }
 
+func (g *ConversionGenerator) functionHasTag(function *types.Type, tagValue string) bool {
+	if g.functionTagName == "" {
+		return false
+	}
+	values := types.ExtractCommentTags("+", function.CommentLines)[g.functionTagName]
+	return len(values) == 1 && values[0] == tagValue
+}
+
 func (g *ConversionGenerator) ensureSameContext(context *generator.Context) {
 	if context != g.context {
 		klog.Fatal("Must re-use the same context used for building the generator")
 	}
+}
+
+func (g *ConversionGenerator) preexists(inType, outType *types.Type) (*types.Type, bool) {
+	return g.getManualConversionTracker().preexists(inType, outType)
+}
+
+// TODO wkpo comment
+func (g *ConversionGenerator) getManualConversionTracker() *ManualConversionsTracker {
+	if g.manualConversionsTracker == nil {
+		additionalConversionArguments := make([]*types.Type, len(g.additionalConversionArguments))
+		i := 0
+		for _, paramType := range g.additionalConversionArguments {
+			additionalConversionArguments[i] = paramType
+		}
+
+		g.manualConversionsTracker = NewManualConversionsTracker(additionalConversionArguments...)
+	}
+	return g.manualConversionsTracker
+}
+
+func (g *ConversionGenerator) sameMemoryLayout(t1, t2 *types.Type) bool {
+	return g.memoryLayoutComparator != nil && g.memoryLayoutComparator.Equal(t1, t2)
 }

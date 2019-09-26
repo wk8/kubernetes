@@ -54,11 +54,6 @@ func isCopyOnly(comments []string) bool {
 	return len(values) == 1 && values[0] == "copy-only"
 }
 
-func isDrop(comments []string) bool {
-	values := types.ExtractCommentTags("+", comments)["k8s:conversion-fn"]
-	return len(values) == 1 && values[0] == "drop"
-}
-
 // TODO: This is created only to reduce number of changes in a single PR.
 // Remove it and use PublicNamer instead.
 func conversionNamer() *namer.NameStrategy {
@@ -267,6 +262,7 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 	return packages
 }
 
+// TODO wkpo what of this?
 type equalMemoryTypes map[conversionPair]bool
 
 func (e equalMemoryTypes) Skip(a, b *types.Type) {
@@ -335,26 +331,6 @@ func (e equalMemoryTypes) equal(a, b *types.Type, alreadyVisitedTypes map[*types
 		}
 	}
 	return false
-}
-
-func findMember(t *types.Type, name string) (types.Member, bool) {
-	if t.Kind != types.Struct {
-		return types.Member{}, false
-	}
-	for _, member := range t.Members {
-		if member.Name == name {
-			return member, true
-		}
-	}
-	return types.Member{}, false
-}
-
-// unwrapAlias recurses down aliased types to find the bedrock type.
-func unwrapAlias(in *types.Type) *types.Type {
-	for in.Kind == types.Alias {
-		in = in.Underlying
-	}
-	return in
 }
 
 const (
@@ -459,11 +435,6 @@ func (g *genConversion) Imports(c *generator.Context) (imports []string) {
 	return importLines
 }
 
-func (g *genConversion) preexists(inType, outType *types.Type) (*types.Type, bool) {
-	function, ok := g.manualConversions[conversionPair{inType, outType}]
-	return function, ok
-}
-
 func (g *genConversion) Init(c *generator.Context, w io.Writer) error {
 	if klog.V(5) {
 		if m, ok := g.useUnsafe.(equalMemoryTypes); ok {
@@ -525,15 +496,6 @@ func (g *genConversion) Init(c *generator.Context, w io.Writer) error {
 	return sw.Error()
 }
 
-func (g *genConversion) GenerateType(c *generator.Context, t *types.Type, w io.Writer) error {
-	klog.V(5).Infof("generating for type %v", t)
-	peerType := getPeerTypeFor(c, t, g.peerPackages)
-	sw := generator.NewSnippetWriter(w, c, "$", "$")
-	g.generateConversion(t, peerType, sw)
-	g.generateConversion(peerType, t, sw)
-	return sw.Error()
-}
-
 func (g *genConversion) generateConversion(inType, outType *types.Type, sw *generator.SnippetWriter) {
 	args := argsFromType(inType, outType).
 		With("Scope", types.Ref(conversionPackagePath, "Scope"))
@@ -559,309 +521,4 @@ func (g *genConversion) generateConversion(inType, outType *types.Type, sw *gene
 		sw.Do("return auto"+nameTmpl+"(in, out, s)\n", args)
 		sw.Do("}\n\n", nil)
 	}
-}
-
-// we use the system of shadowing 'in' and 'out' so that the same code is valid
-// at any nesting level. This makes the autogenerator easy to understand, and
-// the compiler shouldn't care.
-func (g *genConversion) generateFor(inType, outType *types.Type, sw *generator.SnippetWriter) {
-	klog.V(5).Infof("generating %v -> %v", inType, outType)
-	var f func(*types.Type, *types.Type, *generator.SnippetWriter)
-
-	switch inType.Kind {
-	case types.Builtin:
-		f = g.doBuiltin
-	case types.Map:
-		f = g.doMap
-	case types.Slice:
-		f = g.doSlice
-	case types.Struct:
-		f = g.doStruct
-	case types.Pointer:
-		f = g.doPointer
-	case types.Alias:
-		f = g.doAlias
-	default:
-		f = g.doUnknown
-	}
-
-	f(inType, outType, sw)
-}
-
-func (g *genConversion) doBuiltin(inType, outType *types.Type, sw *generator.SnippetWriter) {
-	if inType == outType {
-		sw.Do("*out = *in\n", nil)
-	} else {
-		sw.Do("*out = $.|raw$(*in)\n", outType)
-	}
-}
-
-func (g *genConversion) doMap(inType, outType *types.Type, sw *generator.SnippetWriter) {
-	sw.Do("*out = make($.|raw$, len(*in))\n", outType)
-	if isDirectlyAssignable(inType.Key, outType.Key) {
-		sw.Do("for key, val := range *in {\n", nil)
-		if isDirectlyAssignable(inType.Elem, outType.Elem) {
-			if inType.Key == outType.Key {
-				sw.Do("(*out)[key] = ", nil)
-			} else {
-				sw.Do("(*out)[$.|raw$(key)] = ", outType.Key)
-			}
-			if inType.Elem == outType.Elem {
-				sw.Do("val\n", nil)
-			} else {
-				sw.Do("$.|raw$(val)\n", outType.Elem)
-			}
-		} else {
-			sw.Do("newVal := new($.|raw$)\n", outType.Elem)
-			if function, ok := g.preexists(inType.Elem, outType.Elem); ok {
-				sw.Do("if err := $.|raw$(&val, newVal, s); err != nil {\n", function)
-			} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
-				sw.Do("if err := "+nameTmpl+"(&val, newVal, s); err != nil {\n", argsFromType(inType.Elem, outType.Elem))
-			} else {
-				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-				sw.Do("if err := s.Convert(&val, newVal, 0); err != nil {\n", nil)
-			}
-			sw.Do("return err\n", nil)
-			sw.Do("}\n", nil)
-			if inType.Key == outType.Key {
-				sw.Do("(*out)[key] = *newVal\n", nil)
-			} else {
-				sw.Do("(*out)[$.|raw$(key)] = *newVal\n", outType.Key)
-			}
-		}
-	} else {
-		// TODO: Implement it when necessary.
-		sw.Do("for range *in {\n", nil)
-		sw.Do("// FIXME: Converting unassignable keys unsupported $.|raw$\n", inType.Key)
-	}
-	sw.Do("}\n", nil)
-}
-
-func (g *genConversion) doSlice(inType, outType *types.Type, sw *generator.SnippetWriter) {
-	sw.Do("*out = make($.|raw$, len(*in))\n", outType)
-	if inType.Elem == outType.Elem && inType.Elem.Kind == types.Builtin {
-		sw.Do("copy(*out, *in)\n", nil)
-	} else {
-		sw.Do("for i := range *in {\n", nil)
-		if isDirectlyAssignable(inType.Elem, outType.Elem) {
-			if inType.Elem == outType.Elem {
-				sw.Do("(*out)[i] = (*in)[i]\n", nil)
-			} else {
-				sw.Do("(*out)[i] = $.|raw$((*in)[i])\n", outType.Elem)
-			}
-		} else {
-			if function, ok := g.preexists(inType.Elem, outType.Elem); ok {
-				sw.Do("if err := $.|raw$(&(*in)[i], &(*out)[i], s); err != nil {\n", function)
-			} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
-				sw.Do("if err := "+nameTmpl+"(&(*in)[i], &(*out)[i], s); err != nil {\n", argsFromType(inType.Elem, outType.Elem))
-			} else {
-				// TODO: This triggers on metav1.ObjectMeta <-> metav1.ObjectMeta and
-				// similar because neither package is the target package, and
-				// we really don't know which package will have the conversion
-				// function defined.  This fires on basically every object
-				// conversion outside of pkg/api/v1.
-				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-				sw.Do("if err := s.Convert(&(*in)[i], &(*out)[i], 0); err != nil {\n", nil)
-			}
-			sw.Do("return err\n", nil)
-			sw.Do("}\n", nil)
-		}
-		sw.Do("}\n", nil)
-	}
-}
-
-func (g *genConversion) doStruct(inType, outType *types.Type, sw *generator.SnippetWriter) {
-	for _, inMember := range inType.Members {
-		if tagvals := extractTag(inMember.CommentLines); tagvals != nil && tagvals[0] == "false" {
-			// This field is excluded from conversion.
-			sw.Do("// INFO: in."+inMember.Name+" opted out of conversion generation\n", nil)
-			continue
-		}
-		outMember, found := findMember(outType, inMember.Name)
-		if !found {
-			// This field doesn't exist in the peer.
-			sw.Do("// WARNING: in."+inMember.Name+" requires manual conversion: does not exist in peer-type\n", nil)
-			g.skippedFields[inType] = append(g.skippedFields[inType], inMember.Name)
-			continue
-		}
-
-		inMemberType, outMemberType := inMember.Type, outMember.Type
-		// create a copy of both underlying types but give them the top level alias name (since aliases
-		// are assignable)
-		if underlying := unwrapAlias(inMemberType); underlying != inMemberType {
-			copied := *underlying
-			copied.Name = inMemberType.Name
-			inMemberType = &copied
-		}
-		if underlying := unwrapAlias(outMemberType); underlying != outMemberType {
-			copied := *underlying
-			copied.Name = outMemberType.Name
-			outMemberType = &copied
-		}
-
-		args := argsFromType(inMemberType, outMemberType).With("name", inMember.Name)
-
-		// try a direct memory copy for any type that has exactly equivalent values
-		if g.useUnsafe.Equal(inMemberType, outMemberType) {
-			args = args.
-				With("Pointer", types.Ref("unsafe", "Pointer")).
-				With("SliceHeader", types.Ref("reflect", "SliceHeader"))
-			switch inMemberType.Kind {
-			case types.Pointer:
-				sw.Do("out.$.name$ = ($.outType|raw$)($.Pointer|raw$(in.$.name$))\n", args)
-				continue
-			case types.Map:
-				sw.Do("out.$.name$ = *(*$.outType|raw$)($.Pointer|raw$(&in.$.name$))\n", args)
-				continue
-			case types.Slice:
-				sw.Do("out.$.name$ = *(*$.outType|raw$)($.Pointer|raw$(&in.$.name$))\n", args)
-				continue
-			}
-		}
-
-		// check based on the top level name, not the underlying names
-		if function, ok := g.preexists(inMember.Type, outMember.Type); ok {
-			if isDrop(function.CommentLines) {
-				continue
-			}
-			// copy-only functions that are directly assignable can be inlined instead of invoked.
-			// As an example, conversion functions exist that allow types with private fields to be
-			// correctly copied between types. These functions are equivalent to a memory assignment,
-			// and are necessary for the reflection path, but should not block memory conversion.
-			// Convert_unversioned_Time_to_unversioned_Time is an example of this logic.
-			if !isCopyOnly(function.CommentLines) || !g.isFastConversion(inMemberType, outMemberType) {
-				args["function"] = function
-				sw.Do("if err := $.function|raw$(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
-				sw.Do("return err\n", nil)
-				sw.Do("}\n", nil)
-				continue
-			}
-			klog.V(5).Infof("Skipped function %s because it is copy-only and we can use direct assignment", function.Name)
-		}
-
-		// If we can't auto-convert, punt before we emit any code.
-		if inMemberType.Kind != outMemberType.Kind {
-			sw.Do("// WARNING: in."+inMember.Name+" requires manual conversion: inconvertible types ("+
-				inMemberType.String()+" vs "+outMemberType.String()+")\n", nil)
-			g.skippedFields[inType] = append(g.skippedFields[inType], inMember.Name)
-			continue
-		}
-
-		switch inMemberType.Kind {
-		case types.Builtin:
-			if inMemberType == outMemberType {
-				sw.Do("out.$.name$ = in.$.name$\n", args)
-			} else {
-				sw.Do("out.$.name$ = $.outType|raw$(in.$.name$)\n", args)
-			}
-		case types.Map, types.Slice, types.Pointer:
-			if g.isDirectlyAssignable(inMemberType, outMemberType) {
-				sw.Do("out.$.name$ = in.$.name$\n", args)
-				continue
-			}
-
-			sw.Do("if in.$.name$ != nil {\n", args)
-			sw.Do("in, out := &in.$.name$, &out.$.name$\n", args)
-			g.generateFor(inMemberType, outMemberType, sw)
-			sw.Do("} else {\n", nil)
-			sw.Do("out.$.name$ = nil\n", args)
-			sw.Do("}\n", nil)
-		case types.Struct:
-			if g.isDirectlyAssignable(inMemberType, outMemberType) {
-				sw.Do("out.$.name$ = in.$.name$\n", args)
-				continue
-			}
-			if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
-				sw.Do("if err := "+nameTmpl+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
-			} else {
-				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-				sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
-			}
-			sw.Do("return err\n", nil)
-			sw.Do("}\n", nil)
-		case types.Alias:
-			if isDirectlyAssignable(inMemberType, outMemberType) {
-				if inMemberType == outMemberType {
-					sw.Do("out.$.name$ = in.$.name$\n", args)
-				} else {
-					sw.Do("out.$.name$ = $.outType|raw$(in.$.name$)\n", args)
-				}
-			} else {
-				if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
-					sw.Do("if err := "+nameTmpl+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
-				} else {
-					sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-					sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
-				}
-				sw.Do("return err\n", nil)
-				sw.Do("}\n", nil)
-			}
-		default:
-			if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
-				sw.Do("if err := "+nameTmpl+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
-			} else {
-				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-				sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
-			}
-			sw.Do("return err\n", nil)
-			sw.Do("}\n", nil)
-		}
-	}
-}
-
-func (g *genConversion) isFastConversion(inType, outType *types.Type) bool {
-	switch inType.Kind {
-	case types.Builtin:
-		return true
-	case types.Map, types.Slice, types.Pointer, types.Struct, types.Alias:
-		return g.isDirectlyAssignable(inType, outType)
-	default:
-		return false
-	}
-}
-
-func (g *genConversion) isDirectlyAssignable(inType, outType *types.Type) bool {
-	return unwrapAlias(inType) == unwrapAlias(outType)
-}
-
-func (g *genConversion) doPointer(inType, outType *types.Type, sw *generator.SnippetWriter) {
-	sw.Do("*out = new($.Elem|raw$)\n", outType)
-	if isDirectlyAssignable(inType.Elem, outType.Elem) {
-		if inType.Elem == outType.Elem {
-			sw.Do("**out = **in\n", nil)
-		} else {
-			sw.Do("**out = $.|raw$(**in)\n", outType.Elem)
-		}
-	} else {
-		if function, ok := g.preexists(inType.Elem, outType.Elem); ok {
-			sw.Do("if err := $.|raw$(*in, *out, s); err != nil {\n", function)
-		} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
-			sw.Do("if err := "+nameTmpl+"(*in, *out, s); err != nil {\n", argsFromType(inType.Elem, outType.Elem))
-		} else {
-			sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-			sw.Do("if err := s.Convert(*in, *out, 0); err != nil {\n", nil)
-		}
-		sw.Do("return err\n", nil)
-		sw.Do("}\n", nil)
-	}
-}
-
-func (g *genConversion) doAlias(inType, outType *types.Type, sw *generator.SnippetWriter) {
-	// TODO: Add support for aliases.
-	g.doUnknown(inType, outType, sw)
-}
-
-func (g *genConversion) doUnknown(inType, outType *types.Type, sw *generator.SnippetWriter) {
-	sw.Do("// FIXME: Type $.|raw$ is unsupported.\n", inType)
-}
-
-func isDirectlyAssignable(inType, outType *types.Type) bool {
-	// TODO: This should maybe check for actual assignability between the two
-	// types, rather than superficial traits that happen to indicate it is
-	// assignable in the ways we currently use this code.
-	return inType.IsAssignable() && (inType.IsPrimitive() || isSamePackage(inType, outType))
-}
-
-func isSamePackage(inType, outType *types.Type) bool {
-	return inType.Name.Package == outType.Name.Package
 }
