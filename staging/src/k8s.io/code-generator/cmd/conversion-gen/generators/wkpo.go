@@ -7,14 +7,12 @@ import (
 	"k8s.io/gengo/generator"
 	"k8s.io/gengo/namer"
 	"k8s.io/gengo/types"
+	"k8s.io/klog"
 )
 
 // TODO wkpo move to gengo!!
 // TODO wkpo check all parameters used...?
 // TODO wkpo capture panics and klog.fatal then in k8s code...?
-
-// see comment on WithTagName
-const defaultTagName = "+gengo:conversion-gen"
 
 type ConversionGenerator struct {
 	generator.DefaultGen
@@ -36,7 +34,7 @@ type ConversionGenerator struct {
 	// see comment on WithTagName
 	tagName string
 	// see comment on WithAdditionalConversionArguments
-	additionalConversionArguments []*types.Type
+	additionalConversionArguments map[string]*types.Type
 }
 
 // NewConversionGenerator builds a new ConversionGenerator.
@@ -62,8 +60,6 @@ func NewConversionGenerator(context *generator.Context, outputFileName, typesPac
 		typesPackage:  typesPackage,
 		outputPackage: outputPackage,
 		peerPackages:  peerPackages,
-
-		tagName: defaultTagName,
 	}, nil
 }
 
@@ -81,14 +77,9 @@ func ensurePackageInContext(context *generator.Context, packagePath string) erro
 // conversion code with additional argument, eg
 //    Convert_a_X_To_b_Y(in *a.X, out *b.Y, s conversion.Scope) error
 // Manually defined conversion functions will also be expected to have similar signatures.
-func (g *ConversionGenerator) WithAdditionalConversionArguments(additionalConversionArguments ...*types.Type) *ConversionGenerator {
+func (g *ConversionGenerator) WithAdditionalConversionArguments(additionalConversionArguments map[string]*types.Type) *ConversionGenerator {
 	g.additionalConversionArguments = additionalConversionArguments
 	return g
-}
-
-// TODO wkpo comment
-func (g *ConversionGenerator) WithInit() *ConversionGenerator {
-	// TODO wkpo
 }
 
 // WithTagName allows setting the tag name, ie the marker that this generator
@@ -121,11 +112,7 @@ func (g *ConversionGenerator) Filter(context *generator.Context, t *types.Type) 
 	g.ensureSameContext(context)
 
 	peerType := g.getPeerTypeFor(t)
-	if peerType == nil {
-		return false
-	}
-
-	// TODO wkpo next from here!!
+	return peerType != nil && g.convertibleOnlyWithinPackage(t, peerType)
 }
 
 // TODO wkpo comment?
@@ -135,15 +122,69 @@ func (g *ConversionGenerator) Imports(context *generator.Context) (imports []str
 }
 
 // TODO wkpo comment?
-func (g *ConversionGenerator) Init(context *generator.Context, w io.Writer) error {
+func (g *ConversionGenerator) GenerateType(context *generator.Context, t *types.Type, writer io.Writer) error {
 	g.ensureSameContext(context)
-	// TODO wkpo
+
+	klog.V(5).Infof("generating for type %v", t)
+	peerType := g.getPeerTypeFor(t)
+	snippetWriter := generator.NewSnippetWriter(writer, g.context, "$", "$")
+	g.generateConversion(t, peerType, snippetWriter)
+	g.generateConversion(peerType, t, snippetWriter)
+	return snippetWriter.Error()
+
 }
 
 // TODO wkpo comment?
-func (g *ConversionGenerator) GenerateType(context *generator.Context, t *types.Type, w io.Writer) error {
-	g.ensureSameContext(context)
+func (g *ConversionGenerator) generateConversion(inType, outType *types.Type, snippetWriter *generator.SnippetWriter) {
+	// function signature
+	// TODO wkpo publicIT namer???
+	snippetWriter.Do("func auto"+conversionFunctionNameTemplate("publicIT")+" (in *$.inType|raw$, out *$.outType|raw$",
+		argsFromType(inType, outType))
+	for paramName, paramType := range g.additionalConversionArguments {
+		snippetWriter.Do(fmt.Sprintf(", %s $.|raw$", paramName), paramType)
+	}
+	snippetWriter.Do(") error {\n", nil)
+
+	// body
+	g.generateFor(inType, outType, snippetWriter)
+
+	// close function body
+	snippetWriter.Do("return nil\n", nil)
+	snippetWriter.Do("}\n\n", nil)
+
+	// TODO wkpo next from here if present??
 }
+
+// TODO more wkpo comment?
+// we use the system of shadowing 'in' and 'out' so that the same code is valid
+// at any nesting level. This makes the autogenerator easy to understand, and
+// the compiler shouldn't care.
+func (g *ConversionGenerator) generateFor(inType, outType *types.Type, snippetWriter *generator.SnippetWriter) {
+	klog.V(5).Infof("generating %v -> %v", inType, outType)
+	var f func(*types.Type, *types.Type, *generator.SnippetWriter)
+
+	switch inType.Kind {
+	case types.Builtin:
+		f = g.doBuiltin
+	case types.Map:
+		f = g.doMap
+	case types.Slice:
+		f = g.doSlice
+	case types.Struct:
+		f = g.doStruct
+	case types.Pointer:
+		f = g.doPointer
+	case types.Alias:
+		f = g.doAlias
+	default:
+		f = g.doUnknown
+	}
+
+	f(inType, outType, snippetWriter)
+}
+
+// TODO wkpo next from here! ^ and remove all functions from conversion.go
+// TODO wkpo next need errors?
 
 func (g *ConversionGenerator) getPeerTypeFor(t *types.Type) *types.Type {
 	for _, peerPkgPath := range g.peerPackages {
@@ -155,26 +196,36 @@ func (g *ConversionGenerator) getPeerTypeFor(t *types.Type) *types.Type {
 }
 
 func (g *ConversionGenerator) convertibleOnlyWithinPackage(inType, outType *types.Type) bool {
-	var (
-		t     *types.Type
-		other *types.Type
-	)
+	var t, other *types.Type
 	if inType.Name.Package == g.typesPackage {
 		t, other = inType, outType
 	} else {
 		t, other = outType, inType
 	}
 
-	return t.Name.Package == g.typesPackage &&
-		!g.typeOptedOut(t) && // if the type has opted out, skip it
-		t.Kind == types.Struct && // TODO: Consider generating functions for other kinds too
+	if t.Name.Package != g.typesPackage {
+		return false
+	}
+
+	if g.typeOptedOut(t) {
+		klog.V(5).Infof("type %v requests no conversion generation, skipping", t)
+		return false
+	}
+
+	return t.Kind == types.Struct && // TODO: Consider generating functions for other kinds too
 		!namer.IsPrivateGoName(other.Name.Name) // filter out private types
 }
 
 // TODO wkpo used?
 func (g *ConversionGenerator) manualConversionTracker() *ManualConversionsTracker {
 	if g.manualConversionsTracker == nil {
-		g.manualConversionsTracker = NewManualConversionsTracker(g.additionalConversionArguments...)
+		additionalConversionArguments := make([]*types.Type, len(g.additionalConversionArguments))
+		i := 0
+		for _, paramType := range g.additionalConversionArguments {
+			additionalConversionArguments[i] = paramType
+		}
+
+		g.manualConversionsTracker = NewManualConversionsTracker(additionalConversionArguments...)
 	}
 	return g.manualConversionsTracker
 }
@@ -185,7 +236,7 @@ func (g *ConversionGenerator) typeOptedOut(t *types.Type) bool {
 	tagVals := g.extractTag(t.CommentLines)
 	if len(tagVals) > 0 {
 		if tagVals[0] != "false" {
-			panic(fmt.Sprintf("Type %v: unsupported %s value: %q", t, g.tagName, tagVals[0]))
+			klog.Fatalf(fmt.Sprintf("Type %v: unsupported %s value: %q", t, g.tagName, tagVals[0]))
 		}
 		return true
 	}
@@ -195,11 +246,14 @@ func (g *ConversionGenerator) typeOptedOut(t *types.Type) bool {
 func (g *ConversionGenerator) extractTag(comments []string) []string {
 	// TODO wkpo nice! ya le meme pour doc.go? on peut pas re utiliser ca pour csi-gen plutot que du regex parsing?
 	// TODO wkpo en tout cas on devrait appeler ca un tag aussi, for consistency
+	if g.tagName == "" {
+		return nil
+	}
 	return types.ExtractCommentTags("+", comments)[g.tagName]
 }
 
 func (g *ConversionGenerator) ensureSameContext(context *generator.Context) {
 	if context != g.context {
-		panic("Must re-use the same context used for building the generator")
+		klog.Fatal("Must re-use the same context used for building the generator")
 	}
 }

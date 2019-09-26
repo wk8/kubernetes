@@ -424,6 +424,7 @@ func (n *namerPlusImportTracking) Name(t *types.Type) string {
 	return n.delegate.Name(t)
 }
 
+// TODO wkpo done
 func (g *genConversion) Filter(c *generator.Context, t *types.Type) bool {
 	peerType := getPeerTypeFor(c, t, g.peerPackages)
 	if peerType == nil {
@@ -433,6 +434,7 @@ func (g *genConversion) Filter(c *generator.Context, t *types.Type) bool {
 		return false
 	}
 
+	// TODO wkpo?? faut faire un wrapper qui prend ca en compte...
 	g.types = append(g.types, t)
 	return true
 }

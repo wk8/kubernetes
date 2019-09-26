@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/klog"
+
 	"k8s.io/gengo/generator"
 	"k8s.io/gengo/types"
 )
@@ -41,6 +43,7 @@ func NewManualConversionsTracker(additionalConversionArguments ...*types.Type) *
 var errorName = types.Ref("", "error").Name
 
 // findManualConversionFunctions looks for conversion functions in the given package.
+// TODO wkpo log errors?
 func (t *ManualConversionsTracker) findManualConversionFunctions(context *generator.Context, packagePath string) (errors []error) {
 	pkg := context.Universe[packagePath]
 	if pkg == nil {
@@ -64,6 +67,8 @@ func (t *ManualConversionsTracker) findManualConversionFunctions(context *genera
 			errors = append(errors, fmt.Errorf("function without signature: %#v", function))
 			continue
 		}
+
+		klog.V(8).Infof("Considering function %s", function.Name)
 
 		isConversionFunc, inType, outType := t.isConversionFunction(function, buffer, snippetWriter)
 		if !isConversionFunc {
@@ -116,10 +121,11 @@ func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, bu
 	}
 
 	// check it satisfies the naming convention
+	// TODO: This should call the Namer directly.
 	buffer.Reset()
 	// TODO wkpo le namer la.... il vient d'ou? du context? si oui er... comment on s'assure que le contexte a le bon namer? peut etre en l'ajoutant aux namers du generator?
 	// TODO wkpo try renaming it to wkpo
-	snippetWriter.Do(conversionFunctionTemplate("public"), argsFromType(inType.Elem, outType.Elem))
+	snippetWriter.Do(conversionFunctionNameTemplate("public"), argsFromType(inType.Elem, outType.Elem))
 	if function.Name.Name != buffer.String() {
 		return false, nil, nil
 	}

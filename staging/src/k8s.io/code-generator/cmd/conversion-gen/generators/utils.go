@@ -9,7 +9,7 @@ import (
 
 const conversionFunctionPrefix = "Convert_"
 
-func conversionFunctionTemplate(namer string) string {
+func conversionFunctionNameTemplate(namer string) string {
 	return fmt.Sprintf("%s$.inType|%s$_To_$.outType|%s$", conversionFunctionPrefix, namer, namer)
 }
 
