@@ -45,13 +45,13 @@ type ConversionGenerator struct {
 	// see comment on WithAdditionalConversionArguments
 	additionalConversionArguments []NamedVariable
 	// see comment on WithMissingFieldsHandler
-	missingFieldsHandler func(inType, outType NamedVariable, fieldName string, snippetWriter *generator.SnippetWriter) error
+	missingFieldsHandler func(inVar, outVar NamedVariable, fieldName string, sw *generator.SnippetWriter) error
 	// see comment on WithInconvertibleTypesHandler
-	inconvertibleTypesHandler func(inType, outType NamedVariable, fieldName string, snippetWriter *generator.SnippetWriter) error
+	inconvertibleTypesHandler func(inVar, outVar NamedVariable, fieldName string, sw *generator.SnippetWriter) error
 	// see comment on WithUnsupportedTypesHandler
-	unsupportedTypesHandler func(inType, outType NamedVariable, snippetWriter *generator.SnippetWriter) error
+	unsupportedTypesHandler func(inVar, outVar NamedVariable, sw *generator.SnippetWriter) error
 	// see comment on WithExternalConversionsHandler
-	externalConversionsHandler func(inType, outType NamedVariable, snippetWriter *generator.SnippetWriter) error
+	externalConversionsHandler func(inVar, outVar NamedVariable, sw *generator.SnippetWriter) error
 }
 
 // TODO wkpo comment
@@ -147,7 +147,7 @@ func (g *ConversionGenerator) WithoutUnsafeConversions() *ConversionGenerator {
 }
 
 // WithMissingFieldsHandler allows setting a callback to decide what happens when converting
-// from inType to outType, and when inType.fieldName doesn't exist in outType.
+// from inVar.Type to outVar.Type, and when inType.fieldName doesn't exist in outType.
 // The callback can freely write into the snippet writer, at the spot in the auto-generated
 // conversion function where the conversion code for that field should be.
 // If the handler returns an error, the auto-generated private conversion function
@@ -156,14 +156,15 @@ func (g *ConversionGenerator) WithoutUnsafeConversions() *ConversionGenerator {
 // The handler can also choose to panic to stop the generation altogether, e.g. by calling
 // klog.Fatalf.
 // If this is not set, missing fields are silently ignored.
-func (g *ConversionGenerator) WithMissingFieldsHandler(handler func(inType, outType NamedVariable, fieldName string, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
+func (g *ConversionGenerator) WithMissingFieldsHandler(handler func(inVar, outVar NamedVariable, fieldName string, sw *generator.SnippetWriter) error) *ConversionGenerator {
 	g.missingFieldsHandler = handler
 	return g
 }
 
 // WithInconvertibleTypesHandler allows setting a callback to decide what happens when converting
-// from inType to outType, and when inType.fieldName and outType.fieldName are of inconvertible types.
-// Same as for missing fields, the callback can freely write into the snippet writer, at the spot in
+// from inVar.Type to outVar.Type, and when inVar.Type.fieldName and outVar.Type.fieldName are of
+// inconvertible types.
+// Same as for other handlers, the callback can freely write into the snippet writer, at the spot in
 // the auto-generated conversion function where the conversion code for that field should be.
 // If the handler returns an error, the auto-generated private conversion function
 // (i.e. autoConvert_a_X_To_b_Y) will still be generated, but not the public wrapper for it
@@ -171,28 +172,39 @@ func (g *ConversionGenerator) WithMissingFieldsHandler(handler func(inType, outT
 // The handler can also choose to panic to stop the generation altogether, e.g. by calling
 // klog.Fatalf.
 // If this is not set, missing fields are silently ignored.
-func (g *ConversionGenerator) WithInconvertibleTypesHandler(handler func(inType, outType NamedVariable, fieldName string, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
+func (g *ConversionGenerator) WithInconvertibleTypesHandler(handler func(inVar, outVar NamedVariable, fieldName string, sw *generator.SnippetWriter) error) *ConversionGenerator {
 	g.inconvertibleTypesHandler = handler
 	return g
 }
 
 // WithUnsupportedTypesHandler allows setting a callback to decide what happens when converting
-// from inType to outType, and this generator has no idea how to handle that conversion.
-// Same as for missing fields, the callback can freely write into the snippet writer, at the spot in
-// the auto-generated conversion function where the conversion code for that field should be.
+// from inVar.Type to outVar.Type, and this generator has no idea how to handle that conversion.
+// Same as for other handlers, the callback can freely write into the snippet writer, at the spot in
+// the auto-generated conversion function where the conversion code for that type should be.
 // If the handler returns an error, the auto-generated private conversion function
 // (i.e. autoConvert_a_X_To_b_Y) will still be generated, but not the public wrapper for it
 // (i.e. Convert_a_X_To_b_Y).
 // The handler can also choose to panic to stop the generation altogether, e.g. by calling
 // klog.Fatalf.
 // If this is not set, missing fields are silently ignored.
-func (g *ConversionGenerator) WithUnsupportedTypesHandler(handler func(inType, outType NamedVariable, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
+func (g *ConversionGenerator) WithUnsupportedTypesHandler(handler func(inVar, outVar NamedVariable, sw *generator.SnippetWriter) error) *ConversionGenerator {
 	g.unsupportedTypesHandler = handler
 	return g
 }
 
 // TODO wkpo next from here
-func (g *ConversionGenerator) WithExternalConversionsHandler(handler func(inType, outType NamedVariable, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
+// WithExternalConversionsHandler allows setting a callback to decide what happens when converting
+// from inVar.Type to outVar.Type, but outVar.Type is in a different package than inVar.Type - and so
+// this generator can't know where to find a conversion function for that.
+// Same as for other handlers, the callback can freely write into the snippet writer, at the spot in
+// the auto-generated conversion function where the conversion code for that type should be.
+// If the handler returns an error, the auto-generated private conversion function
+// (i.e. autoConvert_a_X_To_b_Y) will still be generated, but not the public wrapper for it
+// (i.e. Convert_a_X_To_b_Y).
+// The handler can also choose to panic to stop the generation altogether, e.g. by calling
+// klog.Fatalf.
+// If this is not set, missing fields are silently ignored.
+func (g *ConversionGenerator) WithExternalConversionsHandler(handler func(inVar, outVar NamedVariable, sw *generator.SnippetWriter) error) *ConversionGenerator {
 	g.externalConversionsHandler = handler
 	return g
 }
@@ -229,27 +241,27 @@ func (g *ConversionGenerator) GenerateType(context *generator.Context, t *types.
 
 	klog.V(5).Infof("generating for type %v", t)
 	peerType := g.getPeerTypeFor(t)
-	snippetWriter := generator.NewSnippetWriter(writer, g.context, "$", "$")
-	g.generateConversion(t, peerType, snippetWriter)
-	g.generateConversion(peerType, t, snippetWriter)
-	return snippetWriter.Error()
+	sw := generator.NewSnippetWriter(writer, g.context, "$", "$")
+	g.generateConversion(t, peerType, sw)
+	g.generateConversion(peerType, t, sw)
+	return sw.Error()
 
 }
 
 // TODO wkpo comment?
-func (g *ConversionGenerator) generateConversion(inType, outType *types.Type, snippetWriter *generator.SnippetWriter) {
+func (g *ConversionGenerator) generateConversion(inType, outType *types.Type, sw *generator.SnippetWriter) {
 	// function signature
 	// TODO wkpo publicIT namer???
-	snippetWriter.Do("func auto", nil)
-	g.writeConversionFunctionSignature(inType, outType, snippetWriter, true)
-	snippetWriter.Do(" {\n", nil)
+	sw.Do("func auto", nil)
+	g.writeConversionFunctionSignature(inType, outType, sw, true)
+	sw.Do(" {\n", nil)
 
 	// body
-	errors := g.generateFor(inType, outType, snippetWriter)
+	errors := g.generateFor(inType, outType, sw)
 
 	// close function body
-	snippetWriter.Do("return nil\n", nil)
-	snippetWriter.Do("}\n\n", nil)
+	sw.Do("return nil\n", nil)
+	sw.Do("}\n\n", nil)
 
 	// TODO wkpo next from here if present??
 	if _, found := g.preexists(inType, outType); found {
@@ -259,12 +271,12 @@ func (g *ConversionGenerator) generateConversion(inType, outType *types.Type, sn
 
 	if len(errors) == 0 {
 		// Emit a public conversion function.
-		snippetWriter.Do("// "+conversionFunctionNameTemplate("publicIT")+" is an autogenerated conversion function.\nfunc", argsFromType(inType, outType))
-		g.writeConversionFunctionSignature(inType, outType, snippetWriter, true)
-		snippetWriter.Do(" {\n", nil)
-		snippetWriter.Do("return auto", nil) // TODO wkpo consolidate ^ ?
-		g.writeConversionFunctionSignature(inType, outType, snippetWriter, false)
-		snippetWriter.Do("\n}\n\n", nil)
+		sw.Do("// "+conversionFunctionNameTemplate("publicIT")+" is an autogenerated conversion function.\nfunc", argsFromType(inType, outType))
+		g.writeConversionFunctionSignature(inType, outType, sw, true)
+		sw.Do(" {\n", nil)
+		sw.Do("return auto", nil) // TODO wkpo consolidate ^ ?
+		g.writeConversionFunctionSignature(inType, outType, sw, false)
+		sw.Do("\n}\n\n", nil)
 		return
 	}
 
@@ -276,26 +288,26 @@ func (g *ConversionGenerator) generateConversion(inType, outType *types.Type, sn
 	}
 }
 
-func (g *ConversionGenerator) writeConversionFunctionSignature(inType, outType *types.Type, snippetWriter *generator.SnippetWriter, includeTypes bool) {
+func (g *ConversionGenerator) writeConversionFunctionSignature(inType, outType *types.Type, sw *generator.SnippetWriter, includeTypes bool) {
 	args := argsFromType(inType, outType)
-	snippetWriter.Do(conversionFunctionNameTemplate("publicIT"), args)
-	snippetWriter.Do(" (in", nil)
+	sw.Do(conversionFunctionNameTemplate("publicIT"), args)
+	sw.Do(" (in", nil)
 	if includeTypes {
-		snippetWriter.Do(" *$.inType|raw$", args)
+		sw.Do(" *$.inType|raw$", args)
 	}
-	snippetWriter.Do(", out", nil)
+	sw.Do(", out", nil)
 	if includeTypes {
-		snippetWriter.Do(" *$.outType|raw$", args)
+		sw.Do(" *$.outType|raw$", args)
 	}
 	for _, namedArgument := range g.additionalConversionArguments {
-		snippetWriter.Do(fmt.Sprintf(", %s", namedArgument.Name), nil)
+		sw.Do(fmt.Sprintf(", %s", namedArgument.Name), nil)
 		if includeTypes {
-			snippetWriter.Do(" $.|raw$", namedArgument.Type)
+			sw.Do(" $.|raw$", namedArgument.Type)
 		}
 	}
-	snippetWriter.Do(")", nil)
+	sw.Do(")", nil)
 	if includeTypes {
-		snippetWriter.Do(" error", nil)
+		sw.Do(" error", nil)
 	}
 }
 
@@ -305,7 +317,7 @@ func (g *ConversionGenerator) writeConversionFunctionSignature(inType, outType *
 // we use the system of shadowing 'in' and 'out' so that the same code is valid
 // at any nesting level. This makes the autogenerator easy to understand, and
 // the compiler shouldn't care.
-func (g *ConversionGenerator) generateFor(inType, outType *types.Type, snippetWriter *generator.SnippetWriter) []error {
+func (g *ConversionGenerator) generateFor(inType, outType *types.Type, sw *generator.SnippetWriter) []error {
 	klog.V(5).Infof("generating %v -> %v", inType, outType)
 	var f func(*types.Type, *types.Type, *generator.SnippetWriter) []error
 
@@ -326,7 +338,7 @@ func (g *ConversionGenerator) generateFor(inType, outType *types.Type, snippetWr
 		f = g.doUnknown
 	}
 
-	return f(inType, outType, snippetWriter)
+	return f(inType, outType, sw)
 }
 
 // TODO wkpo replace all sw s with textmate
@@ -340,7 +352,7 @@ func (g *ConversionGenerator) doBuiltin(inType, outType *types.Type, sw *generat
 	return nil
 }
 
-func (g *ConversionGenerator) doMap(inType, outType *types.Type, sw *generator.SnippetWriter) []error {
+func (g *ConversionGenerator) doMap(inType, outType *types.Type, sw *generator.SnippetWriter) (errors []error) {
 	sw.Do("*out = make($.|raw$, len(*in))\n", outType)
 	if isDirectlyAssignable(inType.Key, outType.Key) {
 		sw.Do("for key, val := range *in {\n", nil)
@@ -356,21 +368,29 @@ func (g *ConversionGenerator) doMap(inType, outType *types.Type, sw *generator.S
 				sw.Do("$.|raw$(val)\n", outType.Elem)
 			}
 		} else {
-			// TODO wkpo ca va pas le faire ca si ya rien qui handle l'external....
 			sw.Do("newVal := new($.|raw$)\n", outType.Elem)
+
+			manualOrInternal := false
+
 			if function, ok := g.preexists(inType.Elem, outType.Elem); ok {
+				manualOrInternal = true
 				sw.Do("if err := $.|raw$(&val, newVal, s); err != nil {\n", function)
 			} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
-
+				manualOrInternal = true
 				sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&val, newVal, s); err != nil {\n",
 					argsFromType(inType.Elem, outType.Elem))
-			} else {
-				// TODO wkpo !!!! external conversion func!
-				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-				sw.Do("if err := s.Convert(&val, newVal, 0); err != nil {\n", nil)
 			}
-			sw.Do("return err\n", nil)
-			sw.Do("}\n", nil)
+
+			if manualOrInternal {
+				sw.Do("return err\n", nil) // TODO wkpo consolidate below?
+				sw.Do("}\n", nil)
+			} else if g.externalConversionsHandler == nil {
+				klog.Warningf("%s's values of type %s require manual conversion to external type %s",
+					inType.Name, inType.Elem, outType.Name)
+			} else if err := g.externalConversionsHandler(NewNamedVariable("&val", inType.Elem), NewNamedVariable("newVal", outType.Elem), sw); err != nil {
+				errors = append(errors, err)
+			}
+
 			if inType.Key == outType.Key {
 				sw.Do("(*out)[key] = *newVal\n", nil)
 			} else {
@@ -383,10 +403,11 @@ func (g *ConversionGenerator) doMap(inType, outType *types.Type, sw *generator.S
 		sw.Do("// FIXME: Converting unassignable keys unsupported $.|raw$\n", inType.Key)
 	}
 	sw.Do("}\n", nil)
-	return nil
+
+	return
 }
 
-func (g *ConversionGenerator) doSlice(inType, outType *types.Type, sw *generator.SnippetWriter) []error {
+func (g *ConversionGenerator) doSlice(inType, outType *types.Type, sw *generator.SnippetWriter) (errors []error) {
 	sw.Do("*out = make($.|raw$, len(*in))\n", outType)
 	if inType.Elem == outType.Elem && inType.Elem.Kind == types.Builtin {
 		sw.Do("copy(*out, *in)\n", nil)
@@ -399,22 +420,30 @@ func (g *ConversionGenerator) doSlice(inType, outType *types.Type, sw *generator
 				sw.Do("(*out)[i] = $.|raw$((*in)[i])\n", outType.Elem)
 			}
 		} else {
+			manualOrInternal := false
+
 			if function, ok := g.preexists(inType.Elem, outType.Elem); ok {
+				manualOrInternal = true
 				sw.Do("if err := $.|raw$(&(*in)[i], &(*out)[i], s); err != nil {\n", function)
 			} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
+				manualOrInternal = true
 				sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&(*in)[i], &(*out)[i], s); err != nil {\n",
 					argsFromType(inType.Elem, outType.Elem))
-			} else {
-				// TODO wkpo !!!! external conversion func!
-				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-				sw.Do("if err := s.Convert(&(*in)[i], &(*out)[i], 0); err != nil {\n", nil)
 			}
-			sw.Do("return err\n", nil)
-			sw.Do("}\n", nil)
+
+			if manualOrInternal {
+				sw.Do("return err\n", nil) // TODO wkpo consolidate below?
+				sw.Do("}\n", nil)
+			} else if g.externalConversionsHandler == nil {
+				klog.Warningf("%s's items of type %s require manual conversion to external type %s",
+					inType.Name, inType.Name, outType.Name)
+			} else if err := g.externalConversionsHandler(NewNamedVariable("&(*in)[i]", inType.Elem), NewNamedVariable("&(*out)[i]", outType.Elem), sw); err != nil {
+				errors = append(errors, err)
+			}
 		}
 		sw.Do("}\n", nil)
 	}
-	return nil
+	return
 }
 
 func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generator.SnippetWriter) (errors []error) {
@@ -524,13 +553,12 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 			}
 			if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
 				sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
+				sw.Do("return err\n", nil)
+				sw.Do("}\n", nil)
+				// TODO wkpo consolidate ^ ?
 			} else {
-				// TODO wkpo external conversion handler!!
-				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-				sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
+				errors = g.callExternalConversionsHandlerForStructField(inType, outType, inMemberType, outMemberType, &inMember, &outMember, sw, errors)
 			}
-			sw.Do("return err\n", nil)
-			sw.Do("}\n", nil)
 		case types.Alias:
 			if isDirectlyAssignable(inMemberType, outMemberType) {
 				if inMemberType == outMemberType {
@@ -541,30 +569,42 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 			} else {
 				if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
 					sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
+					sw.Do("return err\n", nil)
+					sw.Do("}\n", nil)
+					// TODO wkpo consolidate ^ ?
 				} else {
-					// TODO wkpo external conversion handler!!
-					sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-					sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
+					errors = g.callExternalConversionsHandlerForStructField(inType, outType, inMemberType, outMemberType, &inMember, &outMember, sw, errors)
 				}
-				sw.Do("return err\n", nil)
-				sw.Do("}\n", nil)
 			}
 		default:
 			if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
 				sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
+				sw.Do("return err\n", nil)
+				sw.Do("}\n", nil)
+				// TODO wkpo consolidate ^ ?
 			} else {
-				// TODO wkpo external conversion handler!!
-				sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-				sw.Do("if err := s.Convert(&in.$.name$, &out.$.name$, 0); err != nil {\n", args)
+				errors = g.callExternalConversionsHandlerForStructField(inType, outType, inMemberType, outMemberType, &inMember, &outMember, sw, errors)
 			}
-			sw.Do("return err\n", nil)
-			sw.Do("}\n", nil)
 		}
 	}
 	return
 }
 
-func (g *ConversionGenerator) doPointer(inType, outType *types.Type, sw *generator.SnippetWriter) []error {
+func (g *ConversionGenerator) callExternalConversionsHandlerForStructField(inType, outType, inMemberType, outMemberType *types.Type, inMember, outMember *types.Member, sw *generator.SnippetWriter, errors []error) []error {
+	if g.externalConversionsHandler == nil {
+		klog.Warningf("%s.%s requires manual conversion to external type %s.%s",
+			inType.Name, inMember.Name, outType.Name, outMember.Name)
+	} else {
+		inVar := NewNamedVariable(fmt.Sprintf("&in.%s", inMember.Name), inMemberType)
+		outVar := NewNamedVariable(fmt.Sprintf("&out.%s", outMember.Name), outMemberType)
+		if err := g.externalConversionsHandler(inVar, outVar, sw); err != nil {
+			errors = append(errors, err)
+		}
+	}
+	return errors
+}
+
+func (g *ConversionGenerator) doPointer(inType, outType *types.Type, sw *generator.SnippetWriter) (errors []error) {
 	sw.Do("*out = new($.Elem|raw$)\n", outType)
 	if isDirectlyAssignable(inType.Elem, outType.Elem) {
 		if inType.Elem == outType.Elem {
@@ -573,19 +613,28 @@ func (g *ConversionGenerator) doPointer(inType, outType *types.Type, sw *generat
 			sw.Do("**out = $.|raw$(**in)\n", outType.Elem)
 		}
 	} else {
+		manualOrInternal := false
+
 		if function, ok := g.preexists(inType.Elem, outType.Elem); ok {
+			manualOrInternal = true
 			sw.Do("if err := $.|raw$(*in, *out, s); err != nil {\n", function)
 		} else if g.convertibleOnlyWithinPackage(inType.Elem, outType.Elem) {
+			manualOrInternal = true
 			sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(*in, *out, s); err != nil {\n", argsFromType(inType.Elem, outType.Elem))
-		} else {
-			// TODO wkpo external conversion handler!!
-			sw.Do("// TODO: Inefficient conversion wkpo - can we improve it?\n", nil)
-			sw.Do("if err := s.Convert(*in, *out, 0); err != nil {\n", nil)
 		}
-		sw.Do("return err\n", nil)
-		sw.Do("}\n", nil)
+
+		if manualOrInternal {
+			sw.Do("return err\n", nil)
+			sw.Do("}\n", nil)
+			// TODO wkpo consolidate ^ ?
+		} else if g.externalConversionsHandler == nil {
+			klog.Warningf("%s's values of type %s require manual conversion to external type %s",
+				inType.Name, inType.Elem, outType.Name)
+		} else if err := g.externalConversionsHandler(NewNamedVariable("*in", inType), NewNamedVariable("*out", outType), sw); err != nil {
+			errors = append(errors, err)
+		}
 	}
-	return nil
+	return
 }
 
 func (g *ConversionGenerator) doAlias(inType, outType *types.Type, sw *generator.SnippetWriter) []error {

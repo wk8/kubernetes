@@ -51,7 +51,7 @@ func (t *ManualConversionsTracker) findManualConversionFunctions(context *genera
 	}
 
 	buffer := &bytes.Buffer{}
-	snippetWriter := generator.NewSnippetWriter(buffer, context, "$", "$")
+	sw := generator.NewSnippetWriter(buffer, context, "$", "$")
 
 	for _, function := range pkg.Functions {
 		if function.Underlying == nil || function.Underlying.Kind != types.Func {
@@ -65,7 +65,7 @@ func (t *ManualConversionsTracker) findManualConversionFunctions(context *genera
 
 		klog.V(8).Infof("Considering function %s", function.Name)
 
-		isConversionFunc, inType, outType := t.isConversionFunction(function, buffer, snippetWriter)
+		isConversionFunc, inType, outType := t.isConversionFunction(function, buffer, sw)
 		if !isConversionFunc {
 			if strings.HasPrefix(function.Name.Name, conversionFunctionPrefix) {
 				errors = append(errors, fmt.Errorf("function %s %s does not match expected conversion signature",
@@ -91,7 +91,7 @@ func (t *ManualConversionsTracker) findManualConversionFunctions(context *genera
 // isConversionFunction returns true iff the given function is a conversion function; that is of the form
 // func Convert_a_X_To_b_Y(in *a.X, out *b.Y, additionalConversionArguments...) error
 // If it is a signature functions, also returns the inType and outType.
-func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, buffer *bytes.Buffer, snippetWriter *generator.SnippetWriter) (bool, *types.Type, *types.Type) {
+func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, buffer *bytes.Buffer, sw *generator.SnippetWriter) (bool, *types.Type, *types.Type) {
 	signature := function.Underlying.Signature
 
 	if signature.Receiver != nil {
@@ -121,7 +121,7 @@ func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, bu
 	// TODO wkpo le namer la.... il vient d'ou? du context? si oui er... comment on s'assure que le contexte a le bon namer? peut etre en l'ajoutant aux namers du generator?
 	// TODO wkpo try renaming it to wkpo
 	// TODO wkpo peut etre plus propre de passer un namer directement? ou d'en construire un internally??
-	snippetWriter.Do(conversionFunctionNameTemplate("public"), argsFromType(inType.Elem, outType.Elem))
+	sw.Do(conversionFunctionNameTemplate("public"), argsFromType(inType.Elem, outType.Elem))
 	if function.Name.Name != buffer.String() {
 		return false, nil, nil
 	}
