@@ -6,7 +6,7 @@ go 1.12
 
 require (
 	cloud.google.com/go v0.38.0
-	github.com/Azure/azure-sdk-for-go v32.5.0+incompatible
+	github.com/Azure/azure-sdk-for-go v33.1.0+incompatible
 	github.com/Azure/go-autorest/autorest v0.9.0
 	github.com/Azure/go-autorest/autorest/adal v0.5.0
 	github.com/Azure/go-autorest/autorest/to v0.2.0
@@ -35,7 +35,7 @@ require (
 	k8s.io/component-base v0.0.0
 	k8s.io/csi-translation-lib v0.0.0
 	k8s.io/klog v1.0.0
-	k8s.io/utils v0.0.0-20190801114015-581e00157fb1
+	k8s.io/utils v0.0.0-20190920012459-5008bf6f8cd6
 	sigs.k8s.io/yaml v1.1.0
 )
 
