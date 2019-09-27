@@ -374,10 +374,10 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 		outMember, found := findMember(outType, inMember.Name)
 		if !found {
 			// This field doesn't exist in the peer.
-			if g.missingFieldsHandler != nil {
-				if err := g.missingFieldsHandler(inType, outType, inMember.Name, sw); err != nil {
-					errors = append(errors, err)
-				}
+			if g.missingFieldsHandler == nil {
+				// TODO wkpo at least log warning?
+			} else if err := g.missingFieldsHandler(inType, outType, inMember.Name, sw); err != nil {
+				errors = append(errors, err)
 			}
 			continue
 		}
@@ -436,10 +436,10 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 
 		// If we can't auto-convert, punt before we emit any code.
 		if inMemberType.Kind != outMemberType.Kind {
-			if g.inconvertibleTypesHandler != nil {
-				if err := g.inconvertibleTypesHandler(inType, outType, inMember.Name, sw); err != nil {
-					errors = append(errors, err)
-				}
+			if g.inconvertibleTypesHandler == nil {
+				// TODO wkpo at least log warning?
+			} else if err := g.inconvertibleTypesHandler(inType, outType, inMember.Name, sw); err != nil {
+				errors = append(errors, err)
 			}
 			continue
 		}
@@ -540,10 +540,10 @@ func (g *ConversionGenerator) doAlias(inType, outType *types.Type, sw *generator
 }
 
 func (g *ConversionGenerator) doUnknown(inType, outType *types.Type, sw *generator.SnippetWriter) []error {
-	if g.unsupportedTypesHandler != nil {
-		if err := g.unsupportedTypesHandler(inType, outType, sw); err != nil {
-			return []error{err}
-		}
+	if g.unsupportedTypesHandler == nil {
+		// TODO wkpo at least log warning?
+	} else if err := g.unsupportedTypesHandler(inType, outType, sw); err != nil {
+		return []error{err}
 	}
 	return nil
 }
