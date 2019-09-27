@@ -43,13 +43,28 @@ type ConversionGenerator struct {
 	// see comment on WithFunctionTagName
 	functionTagName string
 	// see comment on WithAdditionalConversionArguments
-	additionalConversionArguments map[string]*types.Type
+	additionalConversionArguments []NamedVariable
 	// see comment on WithMissingFieldsHandler
-	missingFieldsHandler func(inType, outType *types.Type, fieldName string, snippetWriter *generator.SnippetWriter) error
+	missingFieldsHandler func(inType, outType NamedVariable, fieldName string, snippetWriter *generator.SnippetWriter) error
 	// see comment on WithInconvertibleTypesHandler
-	inconvertibleTypesHandler func(inType, outType *types.Type, fieldName string, snippetWriter *generator.SnippetWriter) error
+	inconvertibleTypesHandler func(inType, outType NamedVariable, fieldName string, snippetWriter *generator.SnippetWriter) error
 	// see comment on WithUnsupportedTypesHandler
-	unsupportedTypesHandler func(inType, outType *types.Type, snippetWriter *generator.SnippetWriter) error
+	unsupportedTypesHandler func(inType, outType NamedVariable, snippetWriter *generator.SnippetWriter) error
+	// see comment on WithExternalConversionsHandler
+	externalConversionsHandler func(inType, outType NamedVariable, snippetWriter *generator.SnippetWriter) error
+}
+
+// TODO wkpo comment
+type NamedVariable struct {
+	Name string
+	Type *types.Type
+}
+
+func NewNamedVariable(name string, t *types.Type) NamedVariable {
+	return NamedVariable{
+		Name: name,
+		Type: t,
+	}
 }
 
 // NewConversionGenerator builds a new ConversionGenerator.
@@ -92,7 +107,7 @@ func ensurePackageInContext(context *generator.Context, packagePath string) erro
 // conversion code with additional argument, eg
 //    Convert_a_X_To_b_Y(in *a.X, out *b.Y, s conversion.Scope) error
 // Manually defined conversion functions will also be expected to have similar signatures.
-func (g *ConversionGenerator) WithAdditionalConversionArguments(additionalConversionArguments map[string]*types.Type) *ConversionGenerator {
+func (g *ConversionGenerator) WithAdditionalConversionArguments(additionalConversionArguments ...NamedVariable) *ConversionGenerator {
 	g.additionalConversionArguments = additionalConversionArguments
 	return g
 }
@@ -141,7 +156,7 @@ func (g *ConversionGenerator) WithoutUnsafeConversions() *ConversionGenerator {
 // The handler can also choose to panic to stop the generation altogether, e.g. by calling
 // klog.Fatalf.
 // If this is not set, missing fields are silently ignored.
-func (g *ConversionGenerator) WithMissingFieldsHandler(handler func(inType, outType *types.Type, fieldName string, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
+func (g *ConversionGenerator) WithMissingFieldsHandler(handler func(inType, outType NamedVariable, fieldName string, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
 	g.missingFieldsHandler = handler
 	return g
 }
@@ -156,7 +171,7 @@ func (g *ConversionGenerator) WithMissingFieldsHandler(handler func(inType, outT
 // The handler can also choose to panic to stop the generation altogether, e.g. by calling
 // klog.Fatalf.
 // If this is not set, missing fields are silently ignored.
-func (g *ConversionGenerator) WithInconvertibleTypesHandler(handler func(inType, outType *types.Type, fieldName string, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
+func (g *ConversionGenerator) WithInconvertibleTypesHandler(handler func(inType, outType NamedVariable, fieldName string, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
 	g.inconvertibleTypesHandler = handler
 	return g
 }
@@ -171,8 +186,14 @@ func (g *ConversionGenerator) WithInconvertibleTypesHandler(handler func(inType,
 // The handler can also choose to panic to stop the generation altogether, e.g. by calling
 // klog.Fatalf.
 // If this is not set, missing fields are silently ignored.
-func (g *ConversionGenerator) WithUnsupportedTypesHandler(handler func(inType, outType *types.Type, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
+func (g *ConversionGenerator) WithUnsupportedTypesHandler(handler func(inType, outType NamedVariable, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
 	g.unsupportedTypesHandler = handler
+	return g
+}
+
+// TODO wkpo next from here
+func (g *ConversionGenerator) WithExternalConversionsHandler(handler func(inType, outType NamedVariable, snippetWriter *generator.SnippetWriter) error) *ConversionGenerator {
+	g.externalConversionsHandler = handler
 	return g
 }
 
@@ -266,10 +287,10 @@ func (g *ConversionGenerator) writeConversionFunctionSignature(inType, outType *
 	if includeTypes {
 		snippetWriter.Do(" *$.outType|raw$", args)
 	}
-	for paramName, paramType := range g.additionalConversionArguments {
-		snippetWriter.Do(fmt.Sprintf(", %s", paramName), nil)
+	for _, namedArgument := range g.additionalConversionArguments {
+		snippetWriter.Do(fmt.Sprintf(", %s", namedArgument.Name), nil)
 		if includeTypes {
-			snippetWriter.Do(" $.|raw$", paramType)
+			snippetWriter.Do(" $.|raw$", namedArgument.Type)
 		}
 	}
 	snippetWriter.Do(")", nil)
@@ -335,6 +356,7 @@ func (g *ConversionGenerator) doMap(inType, outType *types.Type, sw *generator.S
 				sw.Do("$.|raw$(val)\n", outType.Elem)
 			}
 		} else {
+			// TODO wkpo ca va pas le faire ca si ya rien qui handle l'external....
 			sw.Do("newVal := new($.|raw$)\n", outType.Elem)
 			if function, ok := g.preexists(inType.Elem, outType.Elem); ok {
 				sw.Do("if err := $.|raw$(&val, newVal, s); err != nil {\n", function)
@@ -406,8 +428,8 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 		if !found {
 			// This field doesn't exist in the peer.
 			if g.missingFieldsHandler == nil {
-				// TODO wkpo at least log warning?
-			} else if err := g.missingFieldsHandler(inType, outType, inMember.Name, sw); err != nil {
+				klog.Warningf("%s.%s requires manual conversion: does not exist in peer-type %s", inType.Name, inMember.Name, outType.Name)
+			} else if err := g.missingFieldsHandler(NewNamedVariable("in", inType), NewNamedVariable("out", outType), inMember.Name, sw); err != nil {
 				errors = append(errors, err)
 			}
 			continue
@@ -468,8 +490,9 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 		// If we can't auto-convert, punt before we emit any code.
 		if inMemberType.Kind != outMemberType.Kind {
 			if g.inconvertibleTypesHandler == nil {
-				// TODO wkpo at least log warning?
-			} else if err := g.inconvertibleTypesHandler(inType, outType, inMember.Name, sw); err != nil {
+				klog.Warningf("%s.%s requires manual conversion: inconvertible types: %s VS %s for %s.%s",
+					inType.Name, inMember.Name, inMemberType, outMemberType, outType.Name, outMember.Name)
+			} else if err := g.inconvertibleTypesHandler(NewNamedVariable("in", inType), NewNamedVariable("out", outType), inMember.Name, sw); err != nil {
 				errors = append(errors, err)
 			}
 			continue
@@ -572,8 +595,8 @@ func (g *ConversionGenerator) doAlias(inType, outType *types.Type, sw *generator
 
 func (g *ConversionGenerator) doUnknown(inType, outType *types.Type, sw *generator.SnippetWriter) []error {
 	if g.unsupportedTypesHandler == nil {
-		// TODO wkpo at least log warning?
-	} else if err := g.unsupportedTypesHandler(inType, outType, sw); err != nil {
+		klog.Warningf("Don't know how to convert %s to %s", inType.Name, outType.Name)
+	} else if err := g.unsupportedTypesHandler(NewNamedVariable("in", inType), NewNamedVariable("out", outType), sw); err != nil {
 		return []error{err}
 	}
 	return nil
@@ -586,6 +609,7 @@ func (g *ConversionGenerator) getPeerTypeFor(t *types.Type) *types.Type {
 			return peerPkg.Types[t.Name.Name]
 		}
 	}
+	return nil
 }
 
 func (g *ConversionGenerator) convertibleOnlyWithinPackage(inType, outType *types.Type) bool {
@@ -664,8 +688,8 @@ func (g *ConversionGenerator) getManualConversionTracker() *ManualConversionsTra
 	if g.manualConversionsTracker == nil {
 		additionalConversionArguments := make([]*types.Type, len(g.additionalConversionArguments))
 		i := 0
-		for _, paramType := range g.additionalConversionArguments {
-			additionalConversionArguments[i] = paramType
+		for _, namedArgument := range g.additionalConversionArguments {
+			additionalConversionArguments[i] = namedArgument.Type
 		}
 
 		g.manualConversionsTracker = NewManualConversionsTracker(additionalConversionArguments...)
