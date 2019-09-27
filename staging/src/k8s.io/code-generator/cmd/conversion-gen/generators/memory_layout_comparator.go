@@ -10,11 +10,6 @@ import (
 
 type memoryLayoutComparator map[conversionPair]bool
 
-// TODO wkpo used?
-func (c memoryLayoutComparator) Skip(a, b *types.Type) {
-	c[conversionPair{a, b}] = false
-}
-
 func (c memoryLayoutComparator) Equal(a, b *types.Type) bool {
 	// alreadyVisitedTypes holds all the types that have already been checked in the structural type recursion.
 	alreadyVisitedTypes := make(map[*types.Type]bool)

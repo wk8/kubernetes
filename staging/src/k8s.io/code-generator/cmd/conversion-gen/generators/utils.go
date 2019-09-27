@@ -12,6 +12,19 @@ type conversionPair struct {
 	outType *types.Type
 }
 
+// TODO wkpo comment
+type NamedVariable struct {
+	Name string
+	Type *types.Type
+}
+
+func NewNamedVariable(name string, t *types.Type) NamedVariable {
+	return NamedVariable{
+		Name: name,
+		Type: t,
+	}
+}
+
 const conversionFunctionPrefix = "Convert_"
 
 func conversionFunctionNameTemplate(namer string) string {
@@ -55,9 +68,6 @@ func isFastConversion(inType, outType *types.Type) bool {
 		return false
 	}
 }
-
-// TODO wkpo next from here! ^ and remove all functions from conversion.go
-// TODO wkpo next need errors?
 
 // TODO wkpo j'ai fucke avec ca, used to be 2 different isDirectlyAssignable.... check i didn't break nothing?
 func isDirectlyAssignable(inType, outType *types.Type) bool {

@@ -15,8 +15,8 @@ import (
 
 // a ManualConversionsTracker keeps track of manually defined conversion functions.
 type ManualConversionsTracker struct {
-	// see the explanation on ConversionGenerator.additionalConversionArguments.
-	additionalConversionArguments []*types.Type
+	// see the explanation on NewManualConversionsTracker.
+	additionalConversionArguments []NamedVariable
 
 	// processedPackages keeps track of which packages have already been processed, as there
 	// is no need to ever process the same package twice.
@@ -27,7 +27,14 @@ type ManualConversionsTracker struct {
 }
 
 // NewManualConversionsTracker builds a new ManualConversionsTracker.
-func NewManualConversionsTracker(additionalConversionArguments ...*types.Type) *ManualConversionsTracker {
+// Additional conversion arguments allow users to set which arguments should be part of
+// a conversion function signature.
+// When generating conversion code, those will be added to the signature of each conversion function,
+// and then passed down to conversion functions for embedded types. This allows to generate
+// conversion code with additional argument, eg
+//    Convert_a_X_To_b_Y(in *a.X, out *b.Y, s conversion.Scope) error
+// Manually defined conversion functions will also be expected to have similar signatures.
+func NewManualConversionsTracker(additionalConversionArguments ...NamedVariable) *ManualConversionsTracker {
 	return &ManualConversionsTracker{
 		additionalConversionArguments: additionalConversionArguments,
 		processedPackages:             make(map[string][]error),
@@ -110,7 +117,7 @@ func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, bu
 		return false, nil, nil
 	}
 	for i, extraArg := range t.additionalConversionArguments {
-		if signature.Parameters[i+2].Name != extraArg.Name {
+		if signature.Parameters[i+2].Name != extraArg.Type.Name {
 			return false, nil, nil
 		}
 	}
@@ -132,4 +139,8 @@ func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, bu
 func (t *ManualConversionsTracker) preexists(inType, outType *types.Type) (*types.Type, bool) {
 	function, ok := t.conversionFunctions[conversionPair{inType, outType}]
 	return function, ok
+}
+
+func (t *ManualConversionsTracker) isEmpty() bool {
+	return len(t.processedPackages) == 0
 }

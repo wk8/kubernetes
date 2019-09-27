@@ -12,7 +12,7 @@ import (
 
 // TODO wkpo move to gengo!!
 // TODO wkpo check all parameters used...?
-// TODO wkpo capture panics and klog.fatal then in k8s code...?
+// TODO wkpo capture panics and klog.Fatal then in k8s code...?
 
 type ConversionGenerator struct {
 	generator.DefaultGen
@@ -41,47 +41,34 @@ type ConversionGenerator struct {
 	tagName string
 	// see comment on WithFunctionTagName
 	functionTagName string
-	// see comment on WithAdditionalConversionArguments
-	additionalConversionArguments []NamedVariable
 	// see comment on WithMissingFieldsHandler
-	missingFieldsHandler func(inVar, outVar NamedVariable, fieldName string, sw *generator.SnippetWriter) error
-	// see comment on WithInconvertibleTypesHandler
-	inconvertibleTypesHandler func(inVar, outVar NamedVariable, fieldName string, sw *generator.SnippetWriter) error
+	missingFieldsHandler func(inVar, outVar NamedVariable, member *types.Member, sw *generator.SnippetWriter) error
+	// see comment on WithInconvertibleFieldsHandler
+	inconvertibleFieldsHandler func(inVar, outVar NamedVariable, inMember, outMember *types.Member, sw *generator.SnippetWriter) error
 	// see comment on WithUnsupportedTypesHandler
 	unsupportedTypesHandler func(inVar, outVar NamedVariable, sw *generator.SnippetWriter) error
 	// see comment on WithExternalConversionsHandler
 	externalConversionsHandler func(inVar, outVar NamedVariable, sw *generator.SnippetWriter) error
 }
 
-// TODO wkpo comment
-type NamedVariable struct {
-	Name string
-	Type *types.Type
-}
-
-func NewNamedVariable(name string, t *types.Type) NamedVariable {
-	return NamedVariable{
-		Name: name,
-		Type: t,
-	}
-}
-
 // NewConversionGenerator builds a new ConversionGenerator.
 // context is the only context that this generator will allow using for all subsequent operations;
 // using any other context will cause a panic.
-// This is because we do need to load all packages in the context at some point, and on most
-// generator callbacks below gengo does not let us return errors; hence we load all the packages we need here.
-func NewConversionGenerator(context *generator.Context, outputFileName, typesPackage, outputPackage string, peerPackages []string) (*ConversionGenerator, error) {
-	if err := ensurePackagesInContext(context, append(peerPackages, typesPackage)...); err != nil {
+// This is because we do need to load all packages in the context at some point, as well as look for
+// manual conversion functions, and on most generator callbacks below gengo does not let us return errors.
+// The manual conversion tracker can be nil, but should be set either if there are additional conversion
+// arguments, or to re-use a single tracker across several generators, for efficiency.
+func NewConversionGenerator(context *generator.Context, outputFileName, typesPackage, outputPackage string, peerPackages []string, manualConversionsTracker *ManualConversionsTracker) (*ConversionGenerator, error) {
+	if err := ensurePackagesInContext(context, append(peerPackages, typesPackage)); err != nil {
 		return nil, err
 	}
 
-	manualConversionsTracker := NewManualConversionsTracker()
-
-	additionalConversionArguments := make([]*types.Type, len(g.additionalConversionArguments))
-	i := 0
-	for _, namedArgument := range g.additionalConversionArguments {
-		additionalConversionArguments[i] = namedArgument.Type
+	tracker := manualConversionsTracker
+	if tracker == nil {
+		tracker = NewManualConversionsTracker()
+	}
+	if err := findManualConversionFunctions(context, tracker, append(peerPackages, typesPackage)); err != nil {
+		return nil, err
 	}
 
 	return &ConversionGenerator{
@@ -93,11 +80,12 @@ func NewConversionGenerator(context *generator.Context, outputFileName, typesPac
 		outputPackage: outputPackage,
 		peerPackages:  peerPackages,
 
-		memoryLayoutComparator: memoryLayoutComparator{},
+		manualConversionsTracker: tracker,
+		memoryLayoutComparator:   memoryLayoutComparator{},
 	}, nil
 }
 
-func ensurePackagesInContext(context *generator.Context, packagePaths ...string) error {
+func ensurePackagesInContext(context *generator.Context, packagePaths []string) error {
 	for _, packagePath := range packagePaths {
 		if _, present := context.Universe[packagePath]; !present {
 			if _, err := context.AddDirectory(packagePath); err != nil {
@@ -109,15 +97,17 @@ func ensurePackagesInContext(context *generator.Context, packagePaths ...string)
 	return nil
 }
 
-// WithAdditionalConversionArguments allows setting the additional conversion arguments.
-// Those will be added to the signature of each conversion function,
-// and then passed down to conversion functions for embedded types. This allows to generate
-// conversion code with additional argument, eg
-//    Convert_a_X_To_b_Y(in *a.X, out *b.Y, s conversion.Scope) error
-// Manually defined conversion functions will also be expected to have similar signatures.
-func (g *ConversionGenerator) WithAdditionalConversionArguments(additionalConversionArguments ...NamedVariable) *ConversionGenerator {
-	g.additionalConversionArguments = additionalConversionArguments
-	return g
+func findManualConversionFunctions(context *generator.Context, tracker *ManualConversionsTracker, packagePaths []string) error {
+	for _, packagePath := range packagePaths {
+		if errors := tracker.findManualConversionFunctions(context, packagePath); len(errors) != 0 {
+			errMsg := "Errors when looking for manual conversion functions in " + packagePath + ":"
+			for _, err := range errors {
+				errMsg += "\n" + err.Error()
+			}
+			return fmt.Errorf(errMsg)
+		}
+	}
+	return nil
 }
 
 // WithTagName allows setting the tag name, ie the marker that this generator
@@ -144,6 +134,8 @@ func (g *ConversionGenerator) WithFunctionTagName(functionTagName string) *Conve
 // This is convenient to re-use the same tracker for multiple generators, thus avoiding to re-do the
 // work of looking for manual conversions in the same packages several times - which is especially
 // notably for peer packages, which often are the same across multiple generators.
+// Note that also sets the additional conversion arguments to be those of the tracker
+// (see WithAdditionalConversionArguments).
 func (g *ConversionGenerator) WithManualConversionsTracker(tracker *ManualConversionsTracker) *ConversionGenerator {
 	g.manualConversionsTracker = tracker
 	return g
@@ -157,7 +149,7 @@ func (g *ConversionGenerator) WithoutUnsafeConversions() *ConversionGenerator {
 }
 
 // WithMissingFieldsHandler allows setting a callback to decide what happens when converting
-// from inVar.Type to outVar.Type, and when inType.fieldName doesn't exist in outType.
+// from inVar.Type to outVar.Type, and when inVar.Type's member doesn't exist in outType.
 // The callback can freely write into the snippet writer, at the spot in the auto-generated
 // conversion function where the conversion code for that field should be.
 // If the handler returns an error, the auto-generated private conversion function
@@ -166,13 +158,13 @@ func (g *ConversionGenerator) WithoutUnsafeConversions() *ConversionGenerator {
 // The handler can also choose to panic to stop the generation altogether, e.g. by calling
 // klog.Fatalf.
 // If this is not set, missing fields are silently ignored.
-func (g *ConversionGenerator) WithMissingFieldsHandler(handler func(inVar, outVar NamedVariable, fieldName string, sw *generator.SnippetWriter) error) *ConversionGenerator {
+func (g *ConversionGenerator) WithMissingFieldsHandler(handler func(inVar, outVar NamedVariable, member *types.Member, sw *generator.SnippetWriter) error) *ConversionGenerator {
 	g.missingFieldsHandler = handler
 	return g
 }
 
-// WithInconvertibleTypesHandler allows setting a callback to decide what happens when converting
-// from inVar.Type to outVar.Type, and when inVar.Type.fieldName and outVar.Type.fieldName are of
+// WithInconvertibleFieldsHandler allows setting a callback to decide what happens when converting
+// from inVar.Type to outVar.Type, and when inVar.Type's inMember and outVar.Type's outMember are of
 // inconvertible types.
 // Same as for other handlers, the callback can freely write into the snippet writer, at the spot in
 // the auto-generated conversion function where the conversion code for that field should be.
@@ -182,8 +174,8 @@ func (g *ConversionGenerator) WithMissingFieldsHandler(handler func(inVar, outVa
 // The handler can also choose to panic to stop the generation altogether, e.g. by calling
 // klog.Fatalf.
 // If this is not set, missing fields are silently ignored.
-func (g *ConversionGenerator) WithInconvertibleTypesHandler(handler func(inVar, outVar NamedVariable, fieldName string, sw *generator.SnippetWriter) error) *ConversionGenerator {
-	g.inconvertibleTypesHandler = handler
+func (g *ConversionGenerator) WithInconvertibleFieldsHandler(handler func(inVar, outVar NamedVariable, inMember, outMember *types.Member, sw *generator.SnippetWriter) error) *ConversionGenerator {
+	g.inconvertibleFieldsHandler = handler
 	return g
 }
 
@@ -219,11 +211,6 @@ func (g *ConversionGenerator) WithExternalConversionsHandler(handler func(inVar,
 	return g
 }
 
-// TODO wkpo!!!
-func (g *ConversionGenerator) WithExternalPackageConversionHandler() *ConversionGenerator {
-	return g
-}
-
 // TODO wkpo comment?
 func (g *ConversionGenerator) Namers(context *generator.Context) namer.NameSystems {
 	g.ensureSameContext(context)
@@ -243,6 +230,7 @@ func (g *ConversionGenerator) Filter(context *generator.Context, t *types.Type) 
 func (g *ConversionGenerator) Imports(context *generator.Context) (imports []string) {
 	g.ensureSameContext(context)
 	// TODO wkpo
+	return nil
 }
 
 // TODO wkpo comment?
@@ -301,7 +289,7 @@ func (g *ConversionGenerator) generateConversion(inType, outType *types.Type, sw
 func (g *ConversionGenerator) writeConversionFunctionSignature(inType, outType *types.Type, sw *generator.SnippetWriter, includeTypes bool) {
 	args := argsFromType(inType, outType)
 	sw.Do(conversionFunctionNameTemplate("publicIT"), args)
-	sw.Do(" (in", nil)
+	sw.Do("(in", nil)
 	if includeTypes {
 		sw.Do(" *$.inType|raw$", args)
 	}
@@ -309,7 +297,7 @@ func (g *ConversionGenerator) writeConversionFunctionSignature(inType, outType *
 	if includeTypes {
 		sw.Do(" *$.outType|raw$", args)
 	}
-	for _, namedArgument := range g.additionalConversionArguments {
+	for _, namedArgument := range g.manualConversionsTracker.additionalConversionArguments {
 		sw.Do(fmt.Sprintf(", %s", namedArgument.Name), nil)
 		if includeTypes {
 			sw.Do(" $.|raw$", namedArgument.Type)
@@ -468,7 +456,7 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 			// This field doesn't exist in the peer.
 			if g.missingFieldsHandler == nil {
 				klog.Warningf("%s.%s requires manual conversion: does not exist in peer-type %s", inType.Name, inMember.Name, outType.Name)
-			} else if err := g.missingFieldsHandler(NewNamedVariable("in", inType), NewNamedVariable("out", outType), inMember.Name, sw); err != nil {
+			} else if err := g.missingFieldsHandler(NewNamedVariable("in", inType), NewNamedVariable("out", outType), &inMember, sw); err != nil {
 				errors = append(errors, err)
 			}
 			continue
@@ -490,6 +478,21 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 
 		args := argsFromType(inMemberType, outMemberType).With("name", inMember.Name)
 
+		// check based on the top level name, not the underlying names
+		if function, ok := g.preexists(inMember.Type, outMember.Type); ok {
+			if g.functionHasTag(function, "drop") {
+				continue
+			}
+			if !g.functionHasTag(function, "copy-only") || !isFastConversion(inMemberType, outMemberType) {
+				args["function"] = function
+				sw.Do("if err := $.function|raw$(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
+				sw.Do("return err\n", nil)
+				sw.Do("}\n", nil)
+				continue
+			}
+			klog.V(5).Infof("Skipped function %s because it is copy-only and we can use direct assignment", function.Name)
+		}
+
 		// try a direct memory copy for any type that has exactly equivalent values
 		if g.sameMemoryLayout(inMemberType, outMemberType) {
 			args = args.With("Pointer", types.Ref("unsafe", "Pointer"))
@@ -506,27 +509,12 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 			}
 		}
 
-		// check based on the top level name, not the underlying names
-		if function, ok := g.preexists(inMember.Type, outMember.Type); ok {
-			if g.functionHasTag(function, "drop") {
-				continue
-			}
-			if !g.functionHasTag(function, "copy-only") || !isFastConversion(inMemberType, outMemberType) {
-				args["function"] = function
-				sw.Do("if err := $.function|raw$(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
-				sw.Do("return err\n", nil)
-				sw.Do("}\n", nil)
-				continue
-			}
-			klog.V(5).Infof("Skipped function %s because it is copy-only and we can use direct assignment", function.Name)
-		}
-
 		// If we can't auto-convert, punt before we emit any code.
 		if inMemberType.Kind != outMemberType.Kind {
-			if g.inconvertibleTypesHandler == nil {
+			if g.inconvertibleFieldsHandler == nil {
 				klog.Warningf("%s.%s requires manual conversion: inconvertible types: %s VS %s for %s.%s",
 					inType.Name, inMember.Name, inMemberType, outMemberType, outType.Name, outMember.Name)
-			} else if err := g.inconvertibleTypesHandler(NewNamedVariable("in", inType), NewNamedVariable("out", outType), inMember.Name, sw); err != nil {
+			} else if err := g.inconvertibleFieldsHandler(NewNamedVariable("in", inType), NewNamedVariable("out", outType), &inMember, &outMember, sw); err != nil {
 				errors = append(errors, err)
 			}
 			continue
@@ -734,7 +722,7 @@ func (g *ConversionGenerator) ensureSameContext(context *generator.Context) {
 }
 
 func (g *ConversionGenerator) preexists(inType, outType *types.Type) (*types.Type, bool) {
-	return g.getManualConversionTracker().preexists(inType, outType)
+	return g.manualConversionsTracker.preexists(inType, outType)
 }
 
 func (g *ConversionGenerator) sameMemoryLayout(t1, t2 *types.Type) bool {
