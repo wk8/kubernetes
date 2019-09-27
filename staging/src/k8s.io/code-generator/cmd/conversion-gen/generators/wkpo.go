@@ -17,12 +17,11 @@ import (
 type ConversionGenerator struct {
 	generator.DefaultGen
 
+	/* Internal state */
+
 	// context is the context with which all subsequent operations on this generator should be made with.
 	// See the comment on NewConversionGenerator for more context (!).
 	context *generator.Context
-
-	/* Internal state */
-
 	// typesPackage is the package that contains the types that conversion func are going to be
 	// generated for.
 	typesPackage string
@@ -73,13 +72,16 @@ func NewNamedVariable(name string, t *types.Type) NamedVariable {
 // This is because we do need to load all packages in the context at some point, and on most
 // generator callbacks below gengo does not let us return errors; hence we load all the packages we need here.
 func NewConversionGenerator(context *generator.Context, outputFileName, typesPackage, outputPackage string, peerPackages []string) (*ConversionGenerator, error) {
-	if err := ensurePackageInContext(context, typesPackage); err != nil {
+	if err := ensurePackagesInContext(context, append(peerPackages, typesPackage)...); err != nil {
 		return nil, err
 	}
-	for _, peerPkg := range peerPackages {
-		if err := ensurePackageInContext(context, peerPkg); err != nil {
-			return nil, err
-		}
+
+	manualConversionsTracker := NewManualConversionsTracker()
+
+	additionalConversionArguments := make([]*types.Type, len(g.additionalConversionArguments))
+	i := 0
+	for _, namedArgument := range g.additionalConversionArguments {
+		additionalConversionArguments[i] = namedArgument.Type
 	}
 
 	return &ConversionGenerator{
@@ -90,15 +92,21 @@ func NewConversionGenerator(context *generator.Context, outputFileName, typesPac
 		typesPackage:  typesPackage,
 		outputPackage: outputPackage,
 		peerPackages:  peerPackages,
+
+		memoryLayoutComparator: memoryLayoutComparator{},
 	}, nil
 }
 
-func ensurePackageInContext(context *generator.Context, packagePath string) error {
-	if _, present := context.Universe[packagePath]; present {
-		return nil
+func ensurePackagesInContext(context *generator.Context, packagePaths ...string) error {
+	for _, packagePath := range packagePaths {
+		if _, present := context.Universe[packagePath]; !present {
+			if _, err := context.AddDirectory(packagePath); err != nil {
+				return err
+			}
+		}
 	}
-	_, err := context.AddDirectory(packagePath)
-	return err
+
+	return nil
 }
 
 // WithAdditionalConversionArguments allows setting the additional conversion arguments.
@@ -113,18 +121,20 @@ func (g *ConversionGenerator) WithAdditionalConversionArguments(additionalConver
 }
 
 // WithTagName allows setting the tag name, ie the marker that this generator
-// will look for in comments on types or in doc.go.
-// * "<tag-name>=<peer-pkg>" in doc.go, where <peer-pkg> is the import path of the package the peer types are defined in.
-// * "<tag-name>=false" in a type's comment will let conversion-gen skip that type.
+// will look for in comments on types.
+// * "<tag-name>=false" in a type's comment will instruct conversion-gen to skip that type.
 func (g *ConversionGenerator) WithTagName(tagName string) *ConversionGenerator {
 	g.tagName = tagName
 	return g
 }
 
 // WithFunctionTagName allows setting the function tag name, ie the marker that this generator
-// will look for in comments on functions. In a function's comments:
-// * "<tag-name>=copy-only" means TODO wkpo
-// * "<tag-name>=drop" means TODO wkpo
+// will look for in comments on manual conversion functions. In a function's comments:
+// * "<tag-name>=copy-only" : copy-only functions that are directly assignable can be inlined
+// 	 instead of invoked. As an example, conversion functions exist that allow types with private
+//   fields to be correctly copied between types. These functions are equivalent to a memory assignment,
+//	 and are necessary for the reflection path, but should not block memory conversion.
+// * "<tag-name>=drop" means to drop that conversion altogether.
 func (g *ConversionGenerator) WithFunctionTagName(functionTagName string) *ConversionGenerator {
 	g.functionTagName = functionTagName
 	return g
@@ -501,11 +511,6 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 			if g.functionHasTag(function, "drop") {
 				continue
 			}
-			// copy-only functions that are directly assignable can be inlined instead of invoked.
-			// As an example, conversion functions exist that allow types with private fields to be
-			// correctly copied between types. These functions are equivalent to a memory assignment,
-			// and are necessary for the reflection path, but should not block memory conversion.
-			// Convert_unversioned_Time_to_unversioned_Time is an example of this logic.
 			if !g.functionHasTag(function, "copy-only") || !isFastConversion(inMemberType, outMemberType) {
 				args["function"] = function
 				sw.Do("if err := $.function|raw$(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
@@ -730,20 +735,6 @@ func (g *ConversionGenerator) ensureSameContext(context *generator.Context) {
 
 func (g *ConversionGenerator) preexists(inType, outType *types.Type) (*types.Type, bool) {
 	return g.getManualConversionTracker().preexists(inType, outType)
-}
-
-// TODO wkpo comment
-func (g *ConversionGenerator) getManualConversionTracker() *ManualConversionsTracker {
-	if g.manualConversionsTracker == nil {
-		additionalConversionArguments := make([]*types.Type, len(g.additionalConversionArguments))
-		i := 0
-		for _, namedArgument := range g.additionalConversionArguments {
-			additionalConversionArguments[i] = namedArgument.Type
-		}
-
-		g.manualConversionsTracker = NewManualConversionsTracker(additionalConversionArguments...)
-	}
-	return g.manualConversionsTracker
 }
 
 func (g *ConversionGenerator) sameMemoryLayout(t1, t2 *types.Type) bool {

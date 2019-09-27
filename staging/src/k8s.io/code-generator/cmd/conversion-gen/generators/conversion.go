@@ -49,11 +49,6 @@ func extractExternalTypesTag(comments []string) []string {
 	return types.ExtractCommentTags("+", comments)[externalTypesTagName]
 }
 
-func isCopyOnly(comments []string) bool {
-	values := types.ExtractCommentTags("+", comments)["k8s:conversion-fn"]
-	return len(values) == 1 && values[0] == "copy-only"
-}
-
 // TODO: This is created only to reduce number of changes in a single PR.
 // Remove it and use PublicNamer instead.
 func conversionNamer() *namer.NameStrategy {

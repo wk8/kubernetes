@@ -10,6 +10,7 @@ import (
 
 type memoryLayoutComparator map[conversionPair]bool
 
+// TODO wkpo used?
 func (c memoryLayoutComparator) Skip(a, b *types.Type) {
 	c[conversionPair{a, b}] = false
 }
