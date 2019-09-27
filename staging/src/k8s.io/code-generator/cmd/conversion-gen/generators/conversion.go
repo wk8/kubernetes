@@ -125,6 +125,7 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 	// TODO: in the future, relax the nested manual conversion requirement
 	//   if we can show that a large enough types are memory identical but
 	//   have non-trivial conversion
+	// TODO wkpo comment ^ ?
 	memoryEquivalentTypes := equalMemoryTypes{}
 
 	// We are generating conversions only for packages that are explicitly
@@ -250,6 +251,7 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 
 	// If there is a manual conversion defined between two types, exclude it
 	// from being a candidate for unsafe conversion
+	// TODO wkpo ^ !!
 	for k, v := range manualConversions {
 		if isCopyOnly(v.CommentLines) {
 			klog.V(5).Infof("Conversion function %s will not block memory copy because it is copy-only", v.Name)

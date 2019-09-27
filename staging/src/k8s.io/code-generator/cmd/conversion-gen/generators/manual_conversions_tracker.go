@@ -120,7 +120,7 @@ func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, bu
 	buffer.Reset()
 	// TODO wkpo le namer la.... il vient d'ou? du context? si oui er... comment on s'assure que le contexte a le bon namer? peut etre en l'ajoutant aux namers du generator?
 	// TODO wkpo try renaming it to wkpo
-	// TODO wkpo peut etre plus propre de passer un namer directement?
+	// TODO wkpo peut etre plus propre de passer un namer directement? ou d'en construire un internally??
 	snippetWriter.Do(conversionFunctionNameTemplate("public"), argsFromType(inType.Elem, outType.Elem))
 	if function.Name.Name != buffer.String() {
 		return false, nil, nil
