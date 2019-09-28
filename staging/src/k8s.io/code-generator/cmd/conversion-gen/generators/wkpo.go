@@ -196,7 +196,6 @@ func (g *ConversionGenerator) WithExternalConversionsHandler(handler func(inVar,
 
 // TODO wkpo comment?
 func (g *ConversionGenerator) Namers(context *generator.Context) namer.NameSystems {
-	// Have the raw namer for this file track what it imports.
 	return namer.NameSystems{
 		"raw": namer.NewRawNamer(g.outputPackage, g.importTracker),
 		"publicIT": &namerPlusImportTracking{
@@ -218,7 +217,7 @@ func (n *namerPlusImportTracking) Name(t *types.Type) string {
 
 // TODO wkpo comment?
 func (g *ConversionGenerator) Filter(context *generator.Context, t *types.Type) bool {
-	peerType := g.getPeerTypeFor(context, t)
+	peerType := g.GetPeerTypeFor(context, t)
 	wkpo := peerType != nil && g.convertibleOnlyWithinPackage(t, peerType)
 
 	klog.Infof("wkpo bordel Filter %s => %s (%s && %s)", t.Name.Name, wkpo, peerType != nil, peerType != nil && g.convertibleOnlyWithinPackage(t, peerType))
@@ -249,7 +248,7 @@ func (g *ConversionGenerator) isOtherPackage(pkg string) bool {
 // TODO wkpo comment?
 func (g *ConversionGenerator) GenerateType(context *generator.Context, t *types.Type, writer io.Writer) error {
 	klog.V(5).Infof("generating for type %v", t)
-	peerType := g.getPeerTypeFor(context, t)
+	peerType := g.GetPeerTypeFor(context, t)
 	sw := generator.NewSnippetWriter(writer, context, "$", "$")
 	g.generateConversion(t, peerType, sw)
 	g.generateConversion(peerType, t, sw)
@@ -657,7 +656,7 @@ func (g *ConversionGenerator) doUnknown(inType, outType *types.Type, sw *generat
 }
 
 // TODO wkpo cache that? any difference?
-func (g *ConversionGenerator) getPeerTypeFor(context *generator.Context, t *types.Type) *types.Type {
+func (g *ConversionGenerator) GetPeerTypeFor(context *generator.Context, t *types.Type) *types.Type {
 	for _, peerPkgPath := range g.peerPackages {
 		peerPkg := context.Universe[peerPkgPath]
 		if t.Name.Name == "DaemonSet" {
@@ -742,6 +741,11 @@ func (g *ConversionGenerator) preexists(inType, outType *types.Type) (*types.Typ
 	return g.manualConversionsTracker.preexists(inType, outType)
 }
 
+// TODO wkpo renanme to useUnsafeConversion?
 func (g *ConversionGenerator) sameMemoryLayout(t1, t2 *types.Type) bool {
 	return g.memoryLayoutComparator != nil && g.memoryLayoutComparator.Equal(t1, t2)
+}
+
+func (g *ConversionGenerator) ManualConversions() map[conversionPair]*types.Type {
+	return g.manualConversionsTracker.conversionFunctions
 }
