@@ -102,10 +102,16 @@ func DefaultNameSystem() string {
 func getPeerTypeFor(context *generator.Context, t *types.Type, potenialPeerPkgs []string) *types.Type {
 	for _, ppp := range potenialPeerPkgs {
 		p := context.Universe.Package(ppp)
+		if t.Name.Name == "DaemonSet" {
+			klog.Infof("wkpo bordel looking in peer pkg %s => %v", ppp, p)
+		}
 		if p == nil {
 			continue
 		}
 		if p.Has(t.Name.Name) {
+			if t.Name.Name == "DaemonSet" {
+				klog.Infof("wkpo found in peer pkg %s", ppp)
+			}
 			return p.Type(t.Name.Name)
 		}
 	}
@@ -536,15 +542,17 @@ func (g *genConversion) convertibleOnlyWithinPackage(inType, outType *types.Type
 
 func (g *genConversion) Filter(c *generator.Context, t *types.Type) bool {
 	peerType := getPeerTypeFor(c, t, g.peerPackages)
-	if peerType == nil {
-		return false
-	}
-	if !g.convertibleOnlyWithinPackage(t, peerType) {
-		return false
+	wkpo := false
+	if peerType != nil && g.convertibleOnlyWithinPackage(t, peerType) {
+		wkpo = true
 	}
 
-	g.types = append(g.types, t)
-	return true
+	if wkpo {
+		g.types = append(g.types, t)
+	}
+
+	klog.Infof("wkpo Filter %s => %s", t.Name.Name, wkpo)
+	return wkpo
 }
 
 func (g *genConversion) isOtherPackage(pkg string) bool {

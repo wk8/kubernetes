@@ -98,7 +98,7 @@ $(shell rm -f $(META_DIR)/$(CONVERSION_GEN).todo)
 gen_conversion: $(CONVERSION_GEN)
 	echo "wkpo $(CONVERSION_GEN) --extra-peer-dirs $(CONVERSION_EXTRA_PEER_DIRS) --v $(KUBE_VERBOSE) -O $(CONVERSION_BASENAME)  // $$@"
 
-$(CONVERSION_GEN): $(k8s.io/kubernetes/vendor/k8s.io/code-generator/cmd/conversion-gen)
+$(CONVERSION_GEN): $(k8s.io/kubernetes/vendor/k8s.io/code-generator/cmd/conversion-gen) staging/src/k8s.io/code-generator/cmd/conversion-gen/generators
 	KUBE_BUILD_PLATFORMS="" hack/make-rules/build.sh ./vendor/k8s.io/code-generator/cmd/conversion-gen
 	touch $@
 
