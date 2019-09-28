@@ -1277,7 +1277,9 @@ func autoConvert_v1_WebhookClientConfig_To_apiextensions_WebhookClientConfig(in 
 	} else {
 		out.Service = nil
 	}
-	out.CABundle = *(*[]byte)(unsafe.Pointer(&in.CABundle))
+	if err := conversion.Convert_Slice_byte_To_Slice_byte(&in.CABundle, &out.CABundle, s); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1297,7 +1299,9 @@ func autoConvert_apiextensions_WebhookClientConfig_To_v1_WebhookClientConfig(in 
 	} else {
 		out.Service = nil
 	}
-	out.CABundle = *(*[]byte)(unsafe.Pointer(&in.CABundle))
+	if err := conversion.Convert_Slice_byte_To_Slice_byte(&in.CABundle, &out.CABundle, s); err != nil {
+		return err
+	}
 	return nil
 }
 

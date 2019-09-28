@@ -4161,11 +4161,21 @@ func Convert_core_LimitRange_To_v1_LimitRange(in *core.LimitRange, out *v1.Limit
 
 func autoConvert_v1_LimitRangeItem_To_core_LimitRangeItem(in *v1.LimitRangeItem, out *core.LimitRangeItem, s conversion.Scope) error {
 	out.Type = core.LimitType(in.Type)
-	out.Max = *(*core.ResourceList)(unsafe.Pointer(&in.Max))
-	out.Min = *(*core.ResourceList)(unsafe.Pointer(&in.Min))
-	out.Default = *(*core.ResourceList)(unsafe.Pointer(&in.Default))
-	out.DefaultRequest = *(*core.ResourceList)(unsafe.Pointer(&in.DefaultRequest))
-	out.MaxLimitRequestRatio = *(*core.ResourceList)(unsafe.Pointer(&in.MaxLimitRequestRatio))
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Max, &out.Max, s); err != nil {
+		return err
+	}
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Min, &out.Min, s); err != nil {
+		return err
+	}
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Default, &out.Default, s); err != nil {
+		return err
+	}
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.DefaultRequest, &out.DefaultRequest, s); err != nil {
+		return err
+	}
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.MaxLimitRequestRatio, &out.MaxLimitRequestRatio, s); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -4744,7 +4754,9 @@ func Convert_core_NodeProxyOptions_To_v1_NodeProxyOptions(in *core.NodeProxyOpti
 }
 
 func autoConvert_v1_NodeResources_To_core_NodeResources(in *v1.NodeResources, out *core.NodeResources, s conversion.Scope) error {
-	out.Capacity = *(*core.ResourceList)(unsafe.Pointer(&in.Capacity))
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Capacity, &out.Capacity, s); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -4851,8 +4863,12 @@ func autoConvert_core_NodeSpec_To_v1_NodeSpec(in *core.NodeSpec, out *v1.NodeSpe
 }
 
 func autoConvert_v1_NodeStatus_To_core_NodeStatus(in *v1.NodeStatus, out *core.NodeStatus, s conversion.Scope) error {
-	out.Capacity = *(*core.ResourceList)(unsafe.Pointer(&in.Capacity))
-	out.Allocatable = *(*core.ResourceList)(unsafe.Pointer(&in.Allocatable))
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Capacity, &out.Capacity, s); err != nil {
+		return err
+	}
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Allocatable, &out.Allocatable, s); err != nil {
+		return err
+	}
 	out.Phase = core.NodePhase(in.Phase)
 	out.Conditions = *(*[]core.NodeCondition)(unsafe.Pointer(&in.Conditions))
 	out.Addresses = *(*[]core.NodeAddress)(unsafe.Pointer(&in.Addresses))
@@ -5145,7 +5161,9 @@ func Convert_core_PersistentVolumeClaimSpec_To_v1_PersistentVolumeClaimSpec(in *
 func autoConvert_v1_PersistentVolumeClaimStatus_To_core_PersistentVolumeClaimStatus(in *v1.PersistentVolumeClaimStatus, out *core.PersistentVolumeClaimStatus, s conversion.Scope) error {
 	out.Phase = core.PersistentVolumeClaimPhase(in.Phase)
 	out.AccessModes = *(*[]core.PersistentVolumeAccessMode)(unsafe.Pointer(&in.AccessModes))
-	out.Capacity = *(*core.ResourceList)(unsafe.Pointer(&in.Capacity))
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Capacity, &out.Capacity, s); err != nil {
+		return err
+	}
 	out.Conditions = *(*[]core.PersistentVolumeClaimCondition)(unsafe.Pointer(&in.Conditions))
 	return nil
 }
@@ -5295,7 +5313,9 @@ func Convert_core_PersistentVolumeSource_To_v1_PersistentVolumeSource(in *core.P
 }
 
 func autoConvert_v1_PersistentVolumeSpec_To_core_PersistentVolumeSpec(in *v1.PersistentVolumeSpec, out *core.PersistentVolumeSpec, s conversion.Scope) error {
-	out.Capacity = *(*core.ResourceList)(unsafe.Pointer(&in.Capacity))
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Capacity, &out.Capacity, s); err != nil {
+		return err
+	}
 	if err := Convert_v1_PersistentVolumeSource_To_core_PersistentVolumeSource(&in.PersistentVolumeSource, &out.PersistentVolumeSource, s); err != nil {
 		return err
 	}
@@ -5859,7 +5879,9 @@ func autoConvert_v1_PodSpec_To_core_PodSpec(in *v1.PodSpec, out *core.PodSpec, s
 	out.RuntimeClassName = (*string)(unsafe.Pointer(in.RuntimeClassName))
 	out.EnableServiceLinks = (*bool)(unsafe.Pointer(in.EnableServiceLinks))
 	out.PreemptionPolicy = (*core.PreemptionPolicy)(unsafe.Pointer(in.PreemptionPolicy))
-	out.Overhead = *(*core.ResourceList)(unsafe.Pointer(&in.Overhead))
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Overhead, &out.Overhead, s); err != nil {
+		return err
+	}
 	out.TopologySpreadConstraints = *(*[]core.TopologySpreadConstraint)(unsafe.Pointer(&in.TopologySpreadConstraints))
 	return nil
 }
@@ -6335,7 +6357,9 @@ func Convert_core_RBDVolumeSource_To_v1_RBDVolumeSource(in *core.RBDVolumeSource
 func autoConvert_v1_RangeAllocation_To_core_RangeAllocation(in *v1.RangeAllocation, out *core.RangeAllocation, s conversion.Scope) error {
 	out.ObjectMeta = in.ObjectMeta
 	out.Range = in.Range
-	out.Data = *(*[]byte)(unsafe.Pointer(&in.Data))
+	if err := conversion.Convert_Slice_byte_To_Slice_byte(&in.Data, &out.Data, s); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -6347,7 +6371,9 @@ func Convert_v1_RangeAllocation_To_core_RangeAllocation(in *v1.RangeAllocation, 
 func autoConvert_core_RangeAllocation_To_v1_RangeAllocation(in *core.RangeAllocation, out *v1.RangeAllocation, s conversion.Scope) error {
 	out.ObjectMeta = in.ObjectMeta
 	out.Range = in.Range
-	out.Data = *(*[]byte)(unsafe.Pointer(&in.Data))
+	if err := conversion.Convert_Slice_byte_To_Slice_byte(&in.Data, &out.Data, s); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -6603,7 +6629,9 @@ func Convert_core_ResourceQuotaList_To_v1_ResourceQuotaList(in *core.ResourceQuo
 }
 
 func autoConvert_v1_ResourceQuotaSpec_To_core_ResourceQuotaSpec(in *v1.ResourceQuotaSpec, out *core.ResourceQuotaSpec, s conversion.Scope) error {
-	out.Hard = *(*core.ResourceList)(unsafe.Pointer(&in.Hard))
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Hard, &out.Hard, s); err != nil {
+		return err
+	}
 	out.Scopes = *(*[]core.ResourceQuotaScope)(unsafe.Pointer(&in.Scopes))
 	out.ScopeSelector = (*core.ScopeSelector)(unsafe.Pointer(in.ScopeSelector))
 	return nil
@@ -6627,8 +6655,12 @@ func Convert_core_ResourceQuotaSpec_To_v1_ResourceQuotaSpec(in *core.ResourceQuo
 }
 
 func autoConvert_v1_ResourceQuotaStatus_To_core_ResourceQuotaStatus(in *v1.ResourceQuotaStatus, out *core.ResourceQuotaStatus, s conversion.Scope) error {
-	out.Hard = *(*core.ResourceList)(unsafe.Pointer(&in.Hard))
-	out.Used = *(*core.ResourceList)(unsafe.Pointer(&in.Used))
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Hard, &out.Hard, s); err != nil {
+		return err
+	}
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Used, &out.Used, s); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -6649,8 +6681,12 @@ func Convert_core_ResourceQuotaStatus_To_v1_ResourceQuotaStatus(in *core.Resourc
 }
 
 func autoConvert_v1_ResourceRequirements_To_core_ResourceRequirements(in *v1.ResourceRequirements, out *core.ResourceRequirements, s conversion.Scope) error {
-	out.Limits = *(*core.ResourceList)(unsafe.Pointer(&in.Limits))
-	out.Requests = *(*core.ResourceList)(unsafe.Pointer(&in.Requests))
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Limits, &out.Limits, s); err != nil {
+		return err
+	}
+	if err := Convert_v1_ResourceList_To_core_ResourceList(&in.Requests, &out.Requests, s); err != nil {
+		return err
+	}
 	return nil
 }
 

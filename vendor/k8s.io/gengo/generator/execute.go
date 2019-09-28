@@ -73,19 +73,33 @@ func (ft DefaultFileType) AssembleFile(f *File, pathname string) error {
 
 	b := &bytes.Buffer{}
 	et := NewErrorTracker(b)
+	
+	
+	ergzeffff
+
+	klog.Infof("wkpo bordel 1")
+
 	ft.Assemble(et, f)
+
+	klog.Infof("wkpo bordel 2")
 	if et.Error() != nil {
 		return et.Error()
 	}
+
+	klog.Infof("wkpo bordel 3")
 	if formatted, err := ft.Format(b.Bytes()); err != nil {
+		klog.Infof("wkpo bordel 4")
 		err = fmt.Errorf("unable to format file %q (%v).", pathname, err)
 		// Write the file anyway, so they can see what's going wrong and fix the generator.
 		if _, err2 := destFile.Write(b.Bytes()); err2 != nil {
 			return err2
 		}
+		klog.Infof("wkpo bordel 5")
 		return err
 	} else {
+		klog.Infof("wkpo bordel 6")
 		_, err = destFile.Write(formatted)
+		klog.Infof("wkpo bordel 7")
 		return err
 	}
 }

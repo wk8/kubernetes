@@ -15,6 +15,8 @@ type memoryLayoutComparator struct {
 	generator      *ConversionGenerator
 }
 
+// TODO wkpo private?
+// TODO wkpo might be cleaner to give it a trakcer and a tag name...?
 func NewMemoryLayoutComparator(generator *ConversionGenerator) *memoryLayoutComparator {
 	return &memoryLayoutComparator{
 		processedPairs: make(map[conversionPair]bool),

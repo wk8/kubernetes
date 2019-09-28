@@ -170,7 +170,9 @@ func Convert_certificates_CertificateSigningRequestList_To_v1beta1_CertificateSi
 }
 
 func autoConvert_v1beta1_CertificateSigningRequestSpec_To_certificates_CertificateSigningRequestSpec(in *v1beta1.CertificateSigningRequestSpec, out *certificates.CertificateSigningRequestSpec, s conversion.Scope) error {
-	out.Request = *(*[]byte)(unsafe.Pointer(&in.Request))
+	if err := conversion.Convert_Slice_byte_To_Slice_byte(&in.Request, &out.Request, s); err != nil {
+		return err
+	}
 	out.Usages = *(*[]certificates.KeyUsage)(unsafe.Pointer(&in.Usages))
 	out.Username = in.Username
 	out.UID = in.UID
@@ -185,7 +187,9 @@ func Convert_v1beta1_CertificateSigningRequestSpec_To_certificates_CertificateSi
 }
 
 func autoConvert_certificates_CertificateSigningRequestSpec_To_v1beta1_CertificateSigningRequestSpec(in *certificates.CertificateSigningRequestSpec, out *v1beta1.CertificateSigningRequestSpec, s conversion.Scope) error {
-	out.Request = *(*[]byte)(unsafe.Pointer(&in.Request))
+	if err := conversion.Convert_Slice_byte_To_Slice_byte(&in.Request, &out.Request, s); err != nil {
+		return err
+	}
 	out.Usages = *(*[]v1beta1.KeyUsage)(unsafe.Pointer(&in.Usages))
 	out.Username = in.Username
 	out.UID = in.UID
@@ -201,7 +205,9 @@ func Convert_certificates_CertificateSigningRequestSpec_To_v1beta1_CertificateSi
 
 func autoConvert_v1beta1_CertificateSigningRequestStatus_To_certificates_CertificateSigningRequestStatus(in *v1beta1.CertificateSigningRequestStatus, out *certificates.CertificateSigningRequestStatus, s conversion.Scope) error {
 	out.Conditions = *(*[]certificates.CertificateSigningRequestCondition)(unsafe.Pointer(&in.Conditions))
-	out.Certificate = *(*[]byte)(unsafe.Pointer(&in.Certificate))
+	if err := conversion.Convert_Slice_byte_To_Slice_byte(&in.Certificate, &out.Certificate, s); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -212,7 +218,9 @@ func Convert_v1beta1_CertificateSigningRequestStatus_To_certificates_Certificate
 
 func autoConvert_certificates_CertificateSigningRequestStatus_To_v1beta1_CertificateSigningRequestStatus(in *certificates.CertificateSigningRequestStatus, out *v1beta1.CertificateSigningRequestStatus, s conversion.Scope) error {
 	out.Conditions = *(*[]v1beta1.CertificateSigningRequestCondition)(unsafe.Pointer(&in.Conditions))
-	out.Certificate = *(*[]byte)(unsafe.Pointer(&in.Certificate))
+	if err := conversion.Convert_Slice_byte_To_Slice_byte(&in.Certificate, &out.Certificate, s); err != nil {
+		return err
+	}
 	return nil
 }
 
