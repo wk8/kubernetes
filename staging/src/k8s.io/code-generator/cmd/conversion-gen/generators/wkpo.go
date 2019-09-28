@@ -31,7 +31,7 @@ type ConversionGenerator struct {
 	manualConversionsTracker *ManualConversionsTracker
 	// memoryLayoutComparator allows comparing types' memory layouts to decide whether
 	// to use unsafe conversions.
-	memoryLayoutComparator memoryLayoutComparator
+	memoryLayoutComparator *memoryLayoutComparator
 	// importTracker tracks the raw namer's imports.
 	importTracker namer.ImportTracker
 
@@ -64,7 +64,7 @@ func NewConversionGenerator(context *generator.Context, outputFileName, typesPac
 	}
 	klog.Infof("wkpo bordel manual 2 conversions found: %v\n", tracker.conversionFunctions)
 
-	return &ConversionGenerator{
+	generator := &ConversionGenerator{
 		DefaultGen: generator.DefaultGen{
 			OptionalName: outputFileName,
 		},
@@ -73,9 +73,11 @@ func NewConversionGenerator(context *generator.Context, outputFileName, typesPac
 		peerPackages:  peerPackages,
 
 		manualConversionsTracker: tracker,
-		memoryLayoutComparator:   memoryLayoutComparator{},
 		importTracker:            generator.NewImportTracker(),
-	}, nil
+	}
+	generator.memoryLayoutComparator = NewMemoryLayoutComparator(generator)
+
+	return generator, nil
 }
 
 func findManualConversionFunctions(context *generator.Context, tracker *ManualConversionsTracker, packagePaths []string) error {
@@ -492,7 +494,7 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 			if g.functionHasTag(function, "drop") {
 				continue
 			}
-			if !g.functionHasTag(function, "copy-only") || !isFastConversion(inMemberType, outMemberType) {
+			if !g.isCopyOnlyFunction(function) || !isFastConversion(inMemberType, outMemberType) {
 				args["function"] = function
 				sw.Do("if err := $.function|raw$(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
 				sw.Do("return err\n", nil)
@@ -503,6 +505,7 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 		}
 
 		// try a direct memory copy for any type that has exactly equivalent values
+		// TODO wkpo on hit ca pour autoConvert_v1beta1_NetworkPolicyEgressRule_To_networking_NetworkPolicyEgressRule
 		if g.sameMemoryLayout(inMemberType, outMemberType) {
 			args = args.With("Pointer", types.Ref("unsafe", "Pointer"))
 			switch inMemberType.Kind {
@@ -729,6 +732,10 @@ func (g *ConversionGenerator) functionHasTag(function *types.Type, tagValue stri
 	}
 	values := types.ExtractCommentTags("+", function.CommentLines)[g.functionTagName]
 	return len(values) == 1 && values[0] == tagValue
+}
+
+func (g *ConversionGenerator) isCopyOnlyFunction(function *types.Type) bool {
+	return g.functionHasTag(function, "copy-only")
 }
 
 func (g *ConversionGenerator) preexists(inType, outType *types.Type) (*types.Type, bool) {

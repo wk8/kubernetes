@@ -1539,7 +1539,7 @@ func Convert_networking_IngressSpec_To_v1beta1_IngressSpec(in *networking.Ingres
 }
 
 func autoConvert_v1beta1_IngressStatus_To_networking_IngressStatus(in *v1beta1.IngressStatus, out *networking.IngressStatus, s conversion.Scope) error {
-	// TODO: Inefficient conversion wkpo - can we improve it?
+	// TODO: Inefficient conversion - can we improve it?
 	if err := s.Convert(&in.LoadBalancer, &out.LoadBalancer, 0); err != nil {
 		return err
 	}
@@ -1552,7 +1552,7 @@ func Convert_v1beta1_IngressStatus_To_networking_IngressStatus(in *v1beta1.Ingre
 }
 
 func autoConvert_networking_IngressStatus_To_v1beta1_IngressStatus(in *networking.IngressStatus, out *v1beta1.IngressStatus, s conversion.Scope) error {
-	// TODO: Inefficient conversion wkpo - can we improve it?
+	// TODO: Inefficient conversion - can we improve it?
 	if err := s.Convert(&in.LoadBalancer, &out.LoadBalancer, 0); err != nil {
 		return err
 	}
