@@ -197,30 +197,32 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 			}
 		}
 
-		conversionGenerator, err := NewConversionGenerator(context, arguments.OutputFileBaseName, typesPkg.Path, pkg.Path, peerPkgs, manualConversionsTracker)
-		if err != nil {
-			klog.Fatalf(err.Error())
-		}
-		conversionGenerator.WithTagName(tagName).
-			WithFunctionTagName(functionTagName).
-			WithMissingFieldsHandler(missingFieldsHandler).
-			WithInconvertibleFieldsHandler(inconvertibleFieldsHandler).
-			WithUnsupportedTypesHandler(unsupportedTypesHandler).
-			WithExternalConversionsHandler(externalConversionsHandler)
-
-		if skipUnsafe {
-			conversionGenerator.WithoutUnsafeConversions()
-		}
-
 		packages = append(packages,
 			&generator.DefaultPackage{
 				PackageName: filepath.Base(pkg.Path),
 				PackagePath: path,
 				HeaderText:  header,
-				GeneratorList: []generator.Generator{
-					&genConversion{
-						ConversionGenerator: conversionGenerator,
-					},
+				GeneratorFunc: func(c *generator.Context) []generator.Generator {
+					conversionGenerator, err := NewConversionGenerator(c, arguments.OutputFileBaseName, typesPkg.Path, pkg.Path, peerPkgs, manualConversionsTracker)
+					if err != nil {
+						klog.Fatalf(err.Error())
+					}
+					conversionGenerator.WithTagName(tagName).
+						WithFunctionTagName(functionTagName).
+						WithMissingFieldsHandler(missingFieldsHandler).
+						WithInconvertibleFieldsHandler(inconvertibleFieldsHandler).
+						WithUnsupportedTypesHandler(unsupportedTypesHandler).
+						WithExternalConversionsHandler(externalConversionsHandler)
+
+					if skipUnsafe {
+						conversionGenerator.WithoutUnsafeConversions()
+					}
+
+					return []generator.Generator{
+						&genConversion{
+							ConversionGenerator: conversionGenerator,
+						},
+					}
 				},
 				FilterFunc: func(c *generator.Context, t *types.Type) bool {
 					return t.Name.Package == typesPkg.Path
