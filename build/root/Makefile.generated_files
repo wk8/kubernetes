@@ -41,61 +41,11 @@ SHELL := /bin/bash
 # generated code needs to be regenerated.
 GO_PKGDEPS_FILE = go-pkgdeps.mk
 
-# Include the Go package dependencies file.  This will cause the rule of
-# the same name to be considered and if it is updated, make will restart and
-# reload the updated deps.
-sinclude $(META_DIR)/$(GO_PKGDEPS_FILE)
 
-# Update the set of Go deps for our project.  This will let us determine if
-# we really need to do expensive codegen.  We use FORCE because it is not a
-# PHONY file, but we do want it to be re-evaluated every time make is run.  The
-# file will only be touched if it actually changes.
-$(META_DIR)/$(GO_PKGDEPS_FILE): FORCE
-	if [[ "$(DBG_CODEGEN)" == 1 ]]; then          \
-	    echo "DBG: calculating Go dependencies";  \
-	fi
-	hack/run-in-gopath.sh go install ./hack/make-rules/helpers/go2make
-	hack/run-in-gopath.sh go2make                     \
-	    k8s.io/kubernetes/...                         \
-	    --prune  k8s.io/kubernetes/staging            \
-	    --prune  k8s.io/kubernetes/vendor             \
-	    k8s.io/kubernetes/vendor/k8s.io/...           \
-	    github.com/go-bindata/go-bindata/go-bindata/... \
-	    > $@.tmp
-	if ! cmp -s $@.tmp $@; then                       \
-	    if [[ "$(DBG_CODEGEN)" == 1 ]]; then          \
-	        echo "DBG: $(GO_PKGDEPS_FILE) changed";   \
-	    fi;                                           \
-	    cat $@.tmp > $@;                              \
-	fi
-	rm -f $@.tmp
 
 .PHONY: FORCE
 FORCE:
 
-#
-# Helper logic to find which directories need codegen as quickly as possible.
-#
-
-# This variable holds a list of every directory that contains Go files in this
-# project.  Other rules and variables can use this as a starting point to
-# reduce filesystem accesses.
-ifeq ($(DBG_MAKEFILE),1)
-    $(warning ***** finding all *.go dirs)
-endif
-ALL_GO_DIRS := $(shell                                                   \
-    hack/make-rules/helpers/cache_go_dirs.sh $(META_DIR)/all_go_dirs.mk  \
-)
-
-# Generate a list of all files that have a `+k8s:` comment-tag.  This will be
-# used to derive lists of files/dirs for generation tools.
-ifeq ($(DBG_MAKEFILE),1)
-    $(warning ***** finding all +k8s: tags)
-endif
-ALL_K8S_TAG_FILES := $(shell                             \
-    find $(ALL_GO_DIRS) -maxdepth 1 -type f -name \*.go  \
-        | xargs grep --color=never -l '^// *+k8s:'       \
-)
 
 
 #
