@@ -47,15 +47,21 @@ var errorName = types.Ref("", "error").Name
 // findManualConversionFunctions looks for conversion functions in the given package.
 // TODO wkpo log errors?
 func (t *ManualConversionsTracker) findManualConversionFunctions(context *generator.Context, packagePath string) (errors []error) {
-	pkg := context.Universe[packagePath]
+	if e, present := t.processedPackages[packagePath]; present {
+		// already processed
+		return e
+	}
+
+	pkg, err := context.AddDirectory(packagePath)
+	if err != nil {
+		return []error{fmt.Errorf("unable to add directory %q to context: %v", packagePath, err)}
+	}
 	if pkg == nil {
 		klog.Warningf("Skipping nil package passed to getManualConversionFunctions")
 		return
 	}
-
-	if e, present := t.processedPackages[pkg.Path]; present {
-		// already processed
-		return e
+	if pkg.Path != packagePath {
+		panic("wkpo bordel....")
 	}
 
 	klog.V(5).Infof("Scanning for conversion functions in %v", pkg.Path)
@@ -94,7 +100,7 @@ func (t *ManualConversionsTracker) findManualConversionFunctions(context *genera
 		t.conversionFunctions[key] = function
 	}
 
-	t.processedPackages[pkg.Path] = errors
+	t.processedPackages[packagePath] = errors
 	return
 }
 

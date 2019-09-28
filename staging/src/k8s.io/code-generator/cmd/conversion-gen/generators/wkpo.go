@@ -55,10 +55,6 @@ type ConversionGenerator struct {
 // The manual conversion tracker can be nil, but should be set either if there are additional conversion
 // arguments, or to re-use a single tracker across several generators, for efficiency.
 func NewConversionGenerator(context *generator.Context, outputFileName, typesPackage, outputPackage string, peerPackages []string, manualConversionsTracker *ManualConversionsTracker) (*ConversionGenerator, error) {
-	if err := ensurePackagesInContext(context, append(peerPackages, outputPackage, typesPackage)); err != nil {
-		return nil, err
-	}
-
 	tracker := manualConversionsTracker
 	if tracker == nil {
 		tracker = NewManualConversionsTracker()
@@ -66,7 +62,7 @@ func NewConversionGenerator(context *generator.Context, outputFileName, typesPac
 	if err := findManualConversionFunctions(context, tracker, append(peerPackages, outputPackage, typesPackage)); err != nil {
 		return nil, err
 	}
-	klog.Infof("wkpo manual 2 conversions found: %v\n", tracker.conversionFunctions)
+	klog.Infof("wkpo bordel manual 2 conversions found: %v\n", tracker.conversionFunctions)
 
 	return &ConversionGenerator{
 		DefaultGen: generator.DefaultGen{
@@ -80,18 +76,6 @@ func NewConversionGenerator(context *generator.Context, outputFileName, typesPac
 		memoryLayoutComparator:   memoryLayoutComparator{},
 		importTracker:            generator.NewImportTracker(),
 	}, nil
-}
-
-func ensurePackagesInContext(context *generator.Context, packagePaths []string) error {
-	for _, packagePath := range packagePaths {
-		if _, present := context.Universe[packagePath]; !present {
-			if _, err := context.AddDirectory(packagePath); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
 }
 
 func findManualConversionFunctions(context *generator.Context, tracker *ManualConversionsTracker, packagePaths []string) error {
@@ -233,7 +217,10 @@ func (n *namerPlusImportTracking) Name(t *types.Type) string {
 // TODO wkpo comment?
 func (g *ConversionGenerator) Filter(context *generator.Context, t *types.Type) bool {
 	peerType := g.getPeerTypeFor(context, t)
-	return peerType != nil && g.convertibleOnlyWithinPackage(t, peerType)
+	wkpo := peerType != nil && g.convertibleOnlyWithinPackage(t, peerType)
+
+	klog.Infof("wkpo bordel Filter %s => %s (%s && %s)", t.Name.Name, wkpo, peerType != nil, peerType != nil && g.convertibleOnlyWithinPackage(t, peerType))
+	return wkpo
 }
 
 // TODO wkpo comment?
@@ -666,10 +653,17 @@ func (g *ConversionGenerator) doUnknown(inType, outType *types.Type, sw *generat
 	return nil
 }
 
+// TODO wkpo cache that? any difference?
 func (g *ConversionGenerator) getPeerTypeFor(context *generator.Context, t *types.Type) *types.Type {
 	for _, peerPkgPath := range g.peerPackages {
 		peerPkg := context.Universe[peerPkgPath]
+		if t.Name.Name == "DaemonSet" {
+			klog.Infof("wkpo bordel looking in peer pkg %s => %v", peerPkgPath, peerPkg)
+		}
 		if peerPkg != nil && peerPkg.Has(t.Name.Name) {
+			if t.Name.Name == "DaemonSet" {
+				klog.Infof("wkpo bordel found in peer pkg %s", peerPkgPath)
+			}
 			return peerPkg.Types[t.Name.Name]
 		}
 	}
