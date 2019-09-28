@@ -277,7 +277,8 @@ func (g *genConversion) Filter(context *generator.Context, t *types.Type) bool {
 	return result
 }
 
-func (g *genConversion) Init(context *generator.Context, writer io.Writer) error {
+// TODO wkpo c quoi qui prend tout le temps dans l'init???
+func (g *genConversion) wkpoInit(context *generator.Context, writer io.Writer) error {
 	sw := generator.NewSnippetWriter(writer, context, "$", "$")
 	sw.Do("func init() {\n", nil)
 	sw.Do("localSchemeBuilder.Register(RegisterConversions)\n", nil)
