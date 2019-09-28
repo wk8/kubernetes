@@ -136,18 +136,6 @@ CONVERSION_GEN := $(BIN_DIR)/conversion-gen
 # The name of the metadata file listing conversion peers for each pkg.
 CONVERSIONS_META := conversions.mk
 
-# All directories that request any form of conversion generation.
-ifeq ($(DBG_MAKEFILE),1)
-    $(warning ***** finding all +k8s:conversion-gen tags)
-endif
-CONVERSION_DIRS := $(shell                                              \
-    grep --color=never '^// *+k8s:conversion-gen=' $(ALL_K8S_TAG_FILES) \
-        | cut -f1 -d:                                                   \
-        | xargs -n1 dirname                                             \
-        | LC_ALL=C sort -u                                              \
-)
-
-CONVERSION_FILES := $(addsuffix /$(CONVERSION_FILENAME), $(CONVERSION_DIRS))
 CONVERSION_EXTRA_PEER_DIRS := k8s.io/kubernetes/pkg/apis/core,k8s.io/kubernetes/pkg/apis/core/v1,k8s.io/api/core/v1
 
 # Reset the list of packages that need generation.

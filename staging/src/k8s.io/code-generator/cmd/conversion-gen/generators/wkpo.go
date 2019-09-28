@@ -55,7 +55,7 @@ type ConversionGenerator struct {
 // The manual conversion tracker can be nil, but should be set either if there are additional conversion
 // arguments, or to re-use a single tracker across several generators, for efficiency.
 func NewConversionGenerator(context *generator.Context, outputFileName, typesPackage, outputPackage string, peerPackages []string, manualConversionsTracker *ManualConversionsTracker) (*ConversionGenerator, error) {
-	if err := ensurePackagesInContext(context, append(peerPackages, typesPackage)); err != nil {
+	if err := ensurePackagesInContext(context, append(peerPackages, outputPackage, typesPackage)); err != nil {
 		return nil, err
 	}
 
@@ -63,10 +63,10 @@ func NewConversionGenerator(context *generator.Context, outputFileName, typesPac
 	if tracker == nil {
 		tracker = NewManualConversionsTracker()
 	}
-	if err := findManualConversionFunctions(context, tracker, append(peerPackages, typesPackage)); err != nil {
+	if err := findManualConversionFunctions(context, tracker, append(peerPackages, outputPackage, typesPackage)); err != nil {
 		return nil, err
 	}
-	klog.Infof("wkpo manual conversions found: %v\n", tracker.conversionFunctions)
+	klog.Infof("wkpo manual 2 conversions found: %v\n", tracker.conversionFunctions)
 
 	return &ConversionGenerator{
 		DefaultGen: generator.DefaultGen{

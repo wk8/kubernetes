@@ -49,13 +49,16 @@ var errorName = types.Ref("", "error").Name
 func (t *ManualConversionsTracker) findManualConversionFunctions(context *generator.Context, packagePath string) (errors []error) {
 	pkg := context.Universe[packagePath]
 	if pkg == nil {
-		return nil
+		klog.Warningf("Skipping nil package passed to getManualConversionFunctions")
+		return
 	}
 
 	if e, present := t.processedPackages[pkg.Path]; present {
 		// already processed
 		return e
 	}
+
+	klog.V(5).Infof("Scanning for conversion functions in %v", pkg.Path)
 
 	buffer := &bytes.Buffer{}
 	sw := generator.NewSnippetWriter(buffer, context, "$", "$")
@@ -102,22 +105,28 @@ func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, bu
 	signature := function.Underlying.Signature
 
 	if signature.Receiver != nil {
+		klog.V(8).Infof("%s has a receiver", function.Name)
 		return false, nil, nil
 	}
 	if len(signature.Results) != 1 || signature.Results[0].Name != errorName {
+		klog.V(8).Infof("%s has wrong results", function.Name)
 		return false, nil, nil
 	}
 	// 2 (in and out) + additionalConversionArguments
 	if len(signature.Parameters) != 2+len(t.additionalConversionArguments) {
+		klog.V(8).Infof("%s has wrong number of parameters", function.Name)
 		return false, nil, nil
 	}
 	inType := signature.Parameters[0]
 	outType := signature.Parameters[1]
 	if inType.Kind != types.Pointer || outType.Kind != types.Pointer {
+		klog.V(8).Infof("%s does not have pointers parameters for in/out", function.Name)
 		return false, nil, nil
 	}
 	for i, extraArg := range t.additionalConversionArguments {
 		if signature.Parameters[i+2].Name != extraArg.Type.Name {
+			klog.V(8).Infof("%s's %d-th parameter has wrong type: %q VS %q",
+				function.Name, i+2, signature.Parameters[i+2].Name, extraArg.Type.Name)
 			return false, nil, nil
 		}
 	}
