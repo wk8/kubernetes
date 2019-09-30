@@ -487,9 +487,7 @@ func autoConvert_v1_WebhookClientConfig_To_admissionregistration_WebhookClientCo
 	} else {
 		out.Service = nil
 	}
-	if err := conversion.Convert_Slice_byte_To_Slice_byte(&in.CABundle, &out.CABundle, s); err != nil {
-		return err
-	}
+	out.CABundle = *(*[]byte)(unsafe.Pointer(&in.CABundle))
 	return nil
 }
 
@@ -509,9 +507,7 @@ func autoConvert_admissionregistration_WebhookClientConfig_To_v1_WebhookClientCo
 	} else {
 		out.Service = nil
 	}
-	if err := conversion.Convert_Slice_byte_To_Slice_byte(&in.CABundle, &out.CABundle, s); err != nil {
-		return err
-	}
+	out.CABundle = *(*[]byte)(unsafe.Pointer(&in.CABundle))
 	return nil
 }
 

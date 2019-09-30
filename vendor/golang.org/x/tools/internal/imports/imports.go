@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/klog"
+
 	"golang.org/x/tools/go/ast/astutil"
 )
 
@@ -42,6 +44,7 @@ type Options struct {
 
 // Process implements golang.org/x/tools/imports.Process with explicit context in env.
 func Process(filename string, src []byte, opt *Options) ([]byte, error) {
+	klog.Info("wkpo bordel Process 2 : 1")
 	if src == nil {
 		b, err := ioutil.ReadFile(filename)
 		if err != nil {
@@ -49,9 +52,12 @@ func Process(filename string, src []byte, opt *Options) ([]byte, error) {
 		}
 		src = b
 	}
+	klog.Info("wkpo bordel Process 2 : 1.2")
 
 	fileSet := token.NewFileSet()
+	klog.Info("wkpo bordel Process 2 : 1.3")
 	file, adjust, err := parse(fileSet, filename, src, opt)
+	klog.Info("wkpo bordel Process 2 : 1.4")
 	if err != nil {
 		return nil, err
 	}
@@ -61,10 +67,13 @@ func Process(filename string, src []byte, opt *Options) ([]byte, error) {
 			return nil, err
 		}
 	}
+	klog.Info("wkpo bordel Process 2 : 1.5")
 
+	klog.Info("wkpo bordel Process 2 : 2")
 	sortImports(opt.Env, fileSet, file)
 	imps := astutil.Imports(fileSet, file)
 	var spacesBefore []string // import paths we need spaces before
+	klog.Info("wkpo bordel Process 2 : 3")
 	for _, impSection := range imps {
 		// Within each block of contiguous imports, see if any
 		// import lines are in different group numbers. If so,
@@ -81,12 +90,14 @@ func Process(filename string, src []byte, opt *Options) ([]byte, error) {
 		}
 
 	}
+	klog.Info("wkpo bordel Process 2 : 4")
 
 	printerMode := printer.UseSpaces
 	if opt.TabIndent {
 		printerMode |= printer.TabIndent
 	}
 	printConfig := &printer.Config{Mode: printerMode, Tabwidth: opt.TabWidth}
+	klog.Info("wkpo bordel Process 2 : 5")
 
 	var buf bytes.Buffer
 	err = printConfig.Fprint(&buf, fileSet, file)
@@ -103,11 +114,13 @@ func Process(filename string, src []byte, opt *Options) ([]byte, error) {
 			return nil, err
 		}
 	}
+	klog.Info("wkpo bordel Process 2 : 6")
 
 	out, err = format.Source(out)
 	if err != nil {
 		return nil, err
 	}
+	klog.Info("wkpo bordel Process 2 : 7")
 	return out, nil
 }
 
