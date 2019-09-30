@@ -1,18 +1,15 @@
 package generators
 
-// TODO wkpo unit tests!!
-
 import (
 	"bytes"
 	"fmt"
 	"strings"
 	"text/template"
 
-	"k8s.io/gengo/namer"
-
 	"k8s.io/klog"
 
 	"k8s.io/gengo/generator"
+	"k8s.io/gengo/namer"
 	"k8s.io/gengo/types"
 )
 

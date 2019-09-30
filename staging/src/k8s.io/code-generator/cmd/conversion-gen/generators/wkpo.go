@@ -12,7 +12,6 @@ import (
 )
 
 // TODO wkpo move to gengo!!
-// TODO wkpo check all parameters used...?
 
 type ConversionGenerator struct {
 	generator.DefaultGen
@@ -28,9 +27,9 @@ type ConversionGenerator struct {
 	peerPackages []string
 	// manualConversionsTracker finds and caches which manually defined exist.
 	manualConversionsTracker *ManualConversionsTracker
-	// memoryLayoutComparator allows comparing types' memory layouts to decide whether
+	// unsafeConversionArbitrator allows comparing types' memory layouts to decide whether
 	// to use unsafe conversions.
-	memoryLayoutComparator *memoryLayoutComparator
+	unsafeConversionArbitrator *unsafeConversionArbitrator
 	// importTracker tracks the raw namer's imports.
 	importTracker namer.ImportTracker
 
@@ -61,9 +60,8 @@ func NewConversionGenerator(context *generator.Context, outputFileName, typesPac
 	if err := findManualConversionFunctions(context, tracker, append(peerPackages, outputPackage, typesPackage)); err != nil {
 		return nil, err
 	}
-	klog.Infof("wkpo bordel manual 2 conversions found: %v\n", tracker.conversionFunctions)
 
-	generator := &ConversionGenerator{
+	return &ConversionGenerator{
 		DefaultGen: generator.DefaultGen{
 			OptionalName: outputFileName,
 		},
@@ -71,12 +69,10 @@ func NewConversionGenerator(context *generator.Context, outputFileName, typesPac
 		outputPackage: outputPackage,
 		peerPackages:  peerPackages,
 
-		manualConversionsTracker: tracker,
-		importTracker:            generator.NewImportTracker(),
-	}
-	generator.memoryLayoutComparator = NewMemoryLayoutComparator(generator)
-
-	return generator, nil
+		manualConversionsTracker:   tracker,
+		unsafeConversionArbitrator: newMemoryLayoutComparator(tracker),
+		importTracker:              generator.NewImportTracker(),
+	}, nil
 }
 
 func findManualConversionFunctions(context *generator.Context, tracker *ManualConversionsTracker, packagePaths []string) error {
@@ -109,6 +105,9 @@ func (g *ConversionGenerator) WithTagName(tagName string) *ConversionGenerator {
 // * "+<tag-name>=drop" means to drop that conversion altogether.
 func (g *ConversionGenerator) WithFunctionTagName(functionTagName string) *ConversionGenerator {
 	g.functionTagName = functionTagName
+	if g.unsafeConversionArbitrator != nil {
+		g.unsafeConversionArbitrator.setFunctionTagName(functionTagName)
+	}
 	return g
 }
 
@@ -126,7 +125,7 @@ func (g *ConversionGenerator) WithManualConversionsTracker(tracker *ManualConver
 // WithoutUnsafeConversions allows disabling the use of unsafe conversions between types that share
 // the same memory layouts.
 func (g *ConversionGenerator) WithoutUnsafeConversions() *ConversionGenerator {
-	g.memoryLayoutComparator = nil
+	g.unsafeConversionArbitrator = nil
 	return g
 }
 
@@ -376,8 +375,7 @@ func (g *ConversionGenerator) doMap(inType, outType *types.Type, sw *generator.S
 			}
 
 			if manualOrInternal {
-				sw.Do("return err\n", nil) // TODO wkpo consolidate below?
-				sw.Do("}\n", nil)
+				sw.Do("return err\n}\n", nil)
 			} else if g.externalConversionsHandler == nil {
 				klog.Warningf("%s's values of type %s require manual conversion to external type %s",
 					inType.Name, inType.Elem, outType.Name)
@@ -426,8 +424,7 @@ func (g *ConversionGenerator) doSlice(inType, outType *types.Type, sw *generator
 			}
 
 			if manualOrInternal {
-				sw.Do("return err\n", nil) // TODO wkpo consolidate below?
-				sw.Do("}\n", nil)
+				sw.Do("return err\n}\n", nil)
 			} else if g.externalConversionsHandler == nil {
 				klog.Warningf("%s's items of type %s require manual conversion to external type %s",
 					inType.Name, inType.Name, outType.Name)
@@ -475,8 +472,7 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 		args := argsFromType(inMemberType, outMemberType).With("name", inMember.Name)
 
 		// try a direct memory copy for any type that has exactly equivalent values
-		// TODO wkpo on hit ca pour autoConvert_v1beta1_NetworkPolicyEgressRule_To_networking_NetworkPolicyEgressRule
-		if g.sameMemoryLayout(inMemberType, outMemberType) {
+		if g.useUnsafeConversion(inMemberType, outMemberType) {
 			args = args.With("Pointer", types.Ref("unsafe", "Pointer"))
 			switch inMemberType.Kind {
 			case types.Pointer:
@@ -496,7 +492,7 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 			if g.functionHasTag(function, "drop") {
 				continue
 			}
-			if !g.isCopyOnlyFunction(function) || !isFastConversion(inMemberType, outMemberType) {
+			if !g.functionHasTag(function, "copy-only") || !isFastConversion(inMemberType, outMemberType) {
 				args["function"] = function
 				sw.Do("if err := $.function|raw$(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
 				sw.Do("return err\n", nil)
@@ -543,9 +539,7 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 			}
 			if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
 				sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
-				sw.Do("return err\n", nil)
-				sw.Do("}\n", nil)
-				// TODO wkpo consolidate ^ ?
+				sw.Do("return err\n}\n", nil)
 			} else {
 				errors = g.callExternalConversionsHandlerForStructField(inType, outType, inMemberType, outMemberType, &inMember, &outMember, sw, errors)
 			}
@@ -559,9 +553,7 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 			} else {
 				if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
 					sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
-					sw.Do("return err\n", nil)
-					sw.Do("}\n", nil)
-					// TODO wkpo consolidate ^ ?
+					sw.Do("return err\n}\n", nil)
 				} else {
 					errors = g.callExternalConversionsHandlerForStructField(inType, outType, inMemberType, outMemberType, &inMember, &outMember, sw, errors)
 				}
@@ -569,9 +561,7 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 		default:
 			if g.convertibleOnlyWithinPackage(inMemberType, outMemberType) {
 				sw.Do("if err := "+conversionFunctionNameTemplate("publicIT")+"(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
-				sw.Do("return err\n", nil)
-				sw.Do("}\n", nil)
-				// TODO wkpo consolidate ^ ?
+				sw.Do("return err\n}\n", nil)
 			} else {
 				errors = g.callExternalConversionsHandlerForStructField(inType, outType, inMemberType, outMemberType, &inMember, &outMember, sw, errors)
 			}
@@ -614,9 +604,7 @@ func (g *ConversionGenerator) doPointer(inType, outType *types.Type, sw *generat
 		}
 
 		if manualOrInternal {
-			sw.Do("return err\n", nil)
-			sw.Do("}\n", nil)
-			// TODO wkpo consolidate ^ ?
+			sw.Do("return err\n}\n", nil)
 		} else if g.externalConversionsHandler == nil {
 			klog.Warningf("%s's values of type %s require manual conversion to external type %s",
 				inType.Name, inType.Elem, outType.Name)
@@ -645,13 +633,7 @@ func (g *ConversionGenerator) doUnknown(inType, outType *types.Type, sw *generat
 func (g *ConversionGenerator) GetPeerTypeFor(context *generator.Context, t *types.Type) *types.Type {
 	for _, peerPkgPath := range g.peerPackages {
 		peerPkg := context.Universe[peerPkgPath]
-		if t.Name.Name == "DaemonSet" {
-			klog.Infof("wkpo bordel looking in peer pkg %s => %v", peerPkgPath, peerPkg)
-		}
 		if peerPkg != nil && peerPkg.Has(t.Name.Name) {
-			if t.Name.Name == "DaemonSet" {
-				klog.Infof("wkpo bordel found in peer pkg %s", peerPkgPath)
-			}
 			return peerPkg.Types[t.Name.Name]
 		}
 	}
@@ -712,24 +694,16 @@ func (g *ConversionGenerator) extractTag(comments []string) []string {
 }
 
 func (g *ConversionGenerator) functionHasTag(function *types.Type, tagValue string) bool {
-	if g.functionTagName == "" {
-		return false
-	}
-	values := types.ExtractCommentTags("+", function.CommentLines)[g.functionTagName]
-	return len(values) == 1 && values[0] == tagValue
-}
-
-func (g *ConversionGenerator) isCopyOnlyFunction(function *types.Type) bool {
-	return g.functionHasTag(function, "copy-only")
+	return functionHasTag(function, g.functionTagName, tagValue)
 }
 
 func (g *ConversionGenerator) preexists(inType, outType *types.Type) (*types.Type, bool) {
 	return g.manualConversionsTracker.preexists(inType, outType)
 }
 
-// TODO wkpo renanme to useUnsafeConversion?
-func (g *ConversionGenerator) sameMemoryLayout(t1, t2 *types.Type) bool {
-	return g.memoryLayoutComparator != nil && g.memoryLayoutComparator.Equal(t1, t2)
+func (g *ConversionGenerator) useUnsafeConversion(t1, t2 *types.Type) bool {
+	return g.unsafeConversionArbitrator != nil &&
+		g.unsafeConversionArbitrator.canUseUnsafeConversion(t1, t2)
 }
 
 func (g *ConversionGenerator) ManualConversions() map[conversionPair]*types.Type {

@@ -96,3 +96,15 @@ func isDirectlyAssignable(inType, outType *types.Type) bool {
 func isSamePackage(inType, outType *types.Type) bool {
 	return inType.Name.Package == outType.Name.Package
 }
+
+func functionHasTag(function *types.Type, functionTagName, tagValue string) bool {
+	if functionTagName == "" {
+		return false
+	}
+	values := types.ExtractCommentTags("+", function.CommentLines)[functionTagName]
+	return len(values) == 1 && values[0] == tagValue
+}
+
+func isCopyOnlyFunction(function *types.Type, functionTagName string) bool {
+	return functionHasTag(function, functionTagName, "copy-only")
+}
