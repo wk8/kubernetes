@@ -73,31 +73,19 @@ func (ft DefaultFileType) AssembleFile(f *File, pathname string) error {
 
 	b := &bytes.Buffer{}
 	et := NewErrorTracker(b)
-
-	klog.Infof("wkpo bordel AssembleFile 1")
-
 	ft.Assemble(et, f)
-
-	klog.Infof("wkpo bordel AssembleFile 2")
 	if et.Error() != nil {
 		return et.Error()
 	}
-
-	klog.Infof("wkpo bordel AssembleFile 3")
-	// TODO wkpo faudrait setter opts.FormatOnly = true ...!
 	if formatted, err := ft.Format(b.Bytes()); err != nil {
-		klog.Infof("wkpo bordel AssembleFile 4")
 		err = fmt.Errorf("unable to format file %q (%v).", pathname, err)
 		// Write the file anyway, so they can see what's going wrong and fix the generator.
 		if _, err2 := destFile.Write(b.Bytes()); err2 != nil {
 			return err2
 		}
-		klog.Infof("wkpo bordel AssembleFile 5")
 		return err
 	} else {
-		klog.Infof("wkpo bordel AssembleFile 6")
 		_, err = destFile.Write(formatted)
-		klog.Infof("wkpo bordel AssembleFile 7")
 		return err
 	}
 }
@@ -171,8 +159,7 @@ func assembleGolangFile(w io.Writer, f *File) {
 }
 
 func importsWrapper(src []byte) ([]byte, error) {
-	// TODO wkpo modified this...
-	return imports.Process("", src, &imports.Options{Comments: true, TabIndent: true, TabWidth: 8, FormatOnly: true})
+	return imports.Process("", src, nil)
 }
 
 func NewGolangFile() *DefaultFileType {

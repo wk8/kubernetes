@@ -4,7 +4,6 @@ package imports // import "golang.org/x/tools/imports"
 
 import (
 	"go/build"
-	"k8s.io/klog"
 
 	intimp "golang.org/x/tools/internal/imports"
 )
@@ -36,7 +35,6 @@ var LocalPrefix string
 // so it is important that filename be accurate.
 // To process data ``as if'' it were in filename, pass the data as a non-nil src.
 func Process(filename string, src []byte, opt *Options) ([]byte, error) {
-	klog.Info("wkpo bordel Process 1")
 	if opt == nil {
 		opt = &Options{Comments: true, TabIndent: true, TabWidth: 8}
 	}
@@ -54,10 +52,7 @@ func Process(filename string, src []byte, opt *Options) ([]byte, error) {
 		TabIndent:  opt.TabIndent,
 		TabWidth:   opt.TabWidth,
 	}
-	klog.Info("wkpo bordel Process 2")
-	wkpo1, wkpo2 := intimp.Process(filename, src, intopt)
-	klog.Info("wkpo bordel Process 3")
-	return wkpo1, wkpo2
+	return intimp.Process(filename, src, intopt)
 }
 
 // VendorlessPath returns the devendorized version of the import path ipath.
