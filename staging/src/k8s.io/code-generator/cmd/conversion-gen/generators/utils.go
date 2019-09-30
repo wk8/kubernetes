@@ -2,8 +2,10 @@ package generators
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/gengo/generator"
+	"k8s.io/gengo/namer"
 	"k8s.io/gengo/types"
 )
 
@@ -12,7 +14,7 @@ type conversionPair struct {
 	outType *types.Type
 }
 
-// TODO wkpo comment
+// A NamedVariable represents a named variable to be rendered in snippets.
 type NamedVariable struct {
 	Name string
 	Type *types.Type
@@ -25,10 +27,24 @@ func NewNamedVariable(name string, t *types.Type) NamedVariable {
 	}
 }
 
-const conversionFunctionPrefix = "Convert_"
+const (
+	conversionFunctionPrefix = "Convert_"
+	snippetDelimiter         = "$"
+)
 
 func conversionFunctionNameTemplate(namer string) string {
-	return fmt.Sprintf("%s$.inType|%s$_To_$.outType|%s$", conversionFunctionPrefix, namer, namer)
+	return fmt.Sprintf("%s%s.inType|%s%s_To_%s.outType|%s%s",
+		conversionFunctionPrefix, snippetDelimiter, namer, snippetDelimiter, snippetDelimiter, namer, snippetDelimiter)
+}
+
+// ConversionNamer returns a namer for conversion function names.
+func ConversionNamer() *namer.NameStrategy {
+	return &namer.NameStrategy{
+		Join: func(pre string, in []string, post string) string {
+			return strings.Join(in, "_")
+		},
+		PrependPackageNames: 1,
+	}
 }
 
 func argsFromType(inType, outType *types.Type) generator.Args {
@@ -69,7 +85,6 @@ func isFastConversion(inType, outType *types.Type) bool {
 	}
 }
 
-// TODO wkpo j'ai fucke avec ca, used to be 2 different isDirectlyAssignable.... check i didn't break nothing?
 func isDirectlyAssignable(inType, outType *types.Type) bool {
 	// TODO: This should maybe check for actual assignability between the two
 	// types, rather than superficial traits that happen to indicate it is

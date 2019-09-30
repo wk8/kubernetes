@@ -41,7 +41,13 @@ const (
 	// conversion-gen skip that type.
 	tagName = "k8s:conversion-gen"
 
-	// TODO wkpo comment
+	// e.g., "+k8s:conversion-fn=copy-only". copy-only functions that are directly
+	// assignable can be inlined instead of invoked. As an example, conversion functions
+	// exist that allow types with private fields to be correctly copied between types.
+	// These functions are equivalent to a memory assignment, and are necessary for the
+	// reflection path, but should not block memory conversion.
+	// e.g.,  "+k8s:conversion-fn=drop" to instruct conversion-gen to not use that conversion
+	// function.
 	functionTagName = "k8s:conversion-fn"
 
 	// e.g., "+k8s:conversion-gen=<peer-pkg>" in doc.go, where <peer-pkg> is the
@@ -52,56 +58,29 @@ const (
 	// e.g., "+k8s:conversion-gen-external-types=<type-pkg>" in doc.go, where
 	// <type-pkg> is the relative path to the package the types are defined in.
 	externalTypesTagName = "k8s:conversion-gen-external-types"
+)
 
-	// TODO wkpo comment
+// Other constants used by this package.
+const (
+	runtimePackagePath    = "k8s.io/apimachinery/pkg/runtime"
+	conversionPackagePath = "k8s.io/apimachinery/pkg/conversion"
+
+	// scopeVarName is the name of the conversion.Scope variable that's in the argument
+	// list of all conversion functions.
 	scopeVarName = "s"
 )
 
-// TODO wkpo move to EOF
-func extractExternalTypesTag(comments []string) []string {
-	return types.ExtractCommentTags("+", comments)[externalTypesTagName]
-}
-
-// TODO: This is created only to reduce number of changes in a single PR.
-// Remove it and use PublicNamer instead.
-// TODO wkpo?? used!!
-func conversionNamer() *namer.NameStrategy {
-	return &namer.NameStrategy{
-		Join: func(pre string, in []string, post string) string {
-			return strings.Join(in, "_")
-		},
-		PrependPackageNames: 1,
-	}
-}
-
-func defaultFnNamer() *namer.NameStrategy {
-	return &namer.NameStrategy{
-		Prefix: "SetDefaults_",
-		Join: func(pre string, in []string, post string) string {
-			return pre + strings.Join(in, "_") + post
-		},
-	}
-}
-
-// TODO wkpo needed this shit?
 // NameSystems returns the name system used by the generators in this package.
 func NameSystems() namer.NameSystems {
 	return namer.NameSystems{
-		"public":    conversionNamer(),
-		"raw":       namer.NewRawNamer("", nil),
-		"defaultfn": defaultFnNamer(),
+		"conversion": ConversionNamer(),
 	}
 }
 
 // DefaultNameSystem returns the default name system for ordering the types to be
 // processed by the generators in this package.
 func DefaultNameSystem() string {
-	return "public"
-}
-
-// TODO wkpo move to EOF
-func extractTag(comments []string) []string {
-	return types.ExtractCommentTags("+", comments)[tagName]
+	return "conversion"
 }
 
 func Packages(context *generator.Context, arguments *args.GeneratorArgs) generator.Packages {
@@ -221,13 +200,10 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 				PackageName: filepath.Base(pkg.Path),
 				PackagePath: path,
 				HeaderText:  header,
-				// TODO wkpo can just be a goddam list
-				GeneratorFunc: func(c *generator.Context) []generator.Generator {
-					return []generator.Generator{
-						&genConversion{
-							ConversionGenerator: conversionGenerator,
-						},
-					}
+				GeneratorList: []generator.Generator{
+					&genConversion{
+						ConversionGenerator: conversionGenerator,
+					},
 				},
 				FilterFunc: func(c *generator.Context, t *types.Type) bool {
 					return t.Name.Package == typesPkg.Path
@@ -312,7 +288,7 @@ func (g *genConversion) Init(context *generator.Context, writer io.Writer) error
 	return sw.Error()
 }
 
-// TODO wkpo comment?
+// samePkgManualConversionPairs returns the list of all conversion pairs from the output package.
 func samePkgManualConversionPairs(manualConversions map[conversionPair]*types.Type, outputPackage string) (pairs []conversionPair) {
 	for pair, t := range manualConversions {
 		if t.Name.Package == outputPackage {
@@ -331,8 +307,10 @@ func samePkgManualConversionPairs(manualConversions map[conversionPair]*types.Ty
 	return
 }
 
-// TODO wkpo??
-const (
-	runtimePackagePath    = "k8s.io/apimachinery/pkg/runtime"
-	conversionPackagePath = "k8s.io/apimachinery/pkg/conversion"
-)
+func extractTag(comments []string) []string {
+	return types.ExtractCommentTags("+", comments)[tagName]
+}
+
+func extractExternalTypesTag(comments []string) []string {
+	return types.ExtractCommentTags("+", comments)[externalTypesTagName]
+}

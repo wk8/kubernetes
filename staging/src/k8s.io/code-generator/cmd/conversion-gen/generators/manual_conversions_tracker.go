@@ -6,6 +6,9 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"text/template"
+
+	"k8s.io/gengo/namer"
 
 	"k8s.io/klog"
 
@@ -24,6 +27,10 @@ type ManualConversionsTracker struct {
 
 	// conversionFunctions keeps track of the manual function definitions known to this tracker.
 	conversionFunctions map[conversionPair]*types.Type
+
+	// see conversionFunctionName
+	buffer          *bytes.Buffer
+	conversionNamer *namer.NameStrategy
 }
 
 // NewManualConversionsTracker builds a new ManualConversionsTracker.
@@ -39,13 +46,14 @@ func NewManualConversionsTracker(additionalConversionArguments ...NamedVariable)
 		additionalConversionArguments: additionalConversionArguments,
 		processedPackages:             make(map[string][]error),
 		conversionFunctions:           make(map[conversionPair]*types.Type),
+		buffer:                        &bytes.Buffer{},
+		conversionNamer:               ConversionNamer(),
 	}
 }
 
 var errorName = types.Ref("", "error").Name
 
 // findManualConversionFunctions looks for conversion functions in the given package.
-// TODO wkpo log errors?
 func (t *ManualConversionsTracker) findManualConversionFunctions(context *generator.Context, packagePath string) (errors []error) {
 	if e, present := t.processedPackages[packagePath]; present {
 		// already processed
@@ -60,14 +68,7 @@ func (t *ManualConversionsTracker) findManualConversionFunctions(context *genera
 		klog.Warningf("Skipping nil package passed to getManualConversionFunctions")
 		return
 	}
-	if pkg.Path != packagePath {
-		panic("wkpo bordel....")
-	}
-
 	klog.V(5).Infof("Scanning for conversion functions in %v", pkg.Path)
-
-	buffer := &bytes.Buffer{}
-	sw := generator.NewSnippetWriter(buffer, context, "$", "$")
 
 	for _, function := range pkg.Functions {
 		if function.Underlying == nil || function.Underlying.Kind != types.Func {
@@ -81,7 +82,7 @@ func (t *ManualConversionsTracker) findManualConversionFunctions(context *genera
 
 		klog.V(8).Infof("Considering function %s", function.Name)
 
-		isConversionFunc, inType, outType := t.isConversionFunction(function, buffer, sw)
+		isConversionFunc, inType, outType := t.isConversionFunction(function)
 		if !isConversionFunc {
 			if strings.HasPrefix(function.Name.Name, conversionFunctionPrefix) {
 				errors = append(errors, fmt.Errorf("function %s %s does not match expected conversion signature",
@@ -107,7 +108,7 @@ func (t *ManualConversionsTracker) findManualConversionFunctions(context *genera
 // isConversionFunction returns true iff the given function is a conversion function; that is of the form
 // func Convert_a_X_To_b_Y(in *a.X, out *b.Y, additionalConversionArguments...) error
 // If it is a signature functions, also returns the inType and outType.
-func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, buffer *bytes.Buffer, sw *generator.SnippetWriter) (bool, *types.Type, *types.Type) {
+func (t *ManualConversionsTracker) isConversionFunction(function *types.Type) (bool, *types.Type, *types.Type) {
 	signature := function.Underlying.Signature
 
 	if signature.Receiver != nil {
@@ -138,13 +139,7 @@ func (t *ManualConversionsTracker) isConversionFunction(function *types.Type, bu
 	}
 
 	// check it satisfies the naming convention
-	// TODO: This should call the Namer directly.
-	buffer.Reset()
-	// TODO wkpo le namer la.... il vient d'ou? du context? si oui er... comment on s'assure que le contexte a le bon namer? peut etre en l'ajoutant aux namers du generator?
-	// TODO wkpo try renaming it to wkpo
-	// TODO wkpo peut etre plus propre de passer un namer directement? ou d'en construire un internally??
-	sw.Do(conversionFunctionNameTemplate("public"), argsFromType(inType.Elem, outType.Elem))
-	if function.Name.Name != buffer.String() {
+	if function.Name.Name != t.conversionFunctionName(inType.Elem, outType.Elem) {
 		return false, nil, nil
 	}
 
@@ -156,6 +151,22 @@ func (t *ManualConversionsTracker) preexists(inType, outType *types.Type) (*type
 	return function, ok
 }
 
-func (t *ManualConversionsTracker) isEmpty() bool {
-	return len(t.processedPackages) == 0
+// conversionFunctionName returns the expected name of the conversion name for in to out.
+func (t *ManualConversionsTracker) conversionFunctionName(in, out *types.Type) string {
+	namerName := "conversion"
+	tmpl, err := template.New("manual conversion function name").
+		Delims(snippetDelimiter, snippetDelimiter).
+		Funcs(map[string]interface{}{namerName: t.conversionNamer.Name}).
+		Parse(conversionFunctionNameTemplate(namerName))
+	if err != nil {
+		// this really shouldn't error out
+		klog.Fatalf("error when generating conversion function name: %v", err)
+	}
+	t.buffer.Reset()
+	err = tmpl.Execute(t.buffer, argsFromType(in, out))
+	if err != nil {
+		// this really shouldn't error out
+		klog.Fatalf("error when generating conversion function name: %v", err)
+	}
+	return t.buffer.String()
 }

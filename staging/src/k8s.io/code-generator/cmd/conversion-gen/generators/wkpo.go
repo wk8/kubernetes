@@ -13,7 +13,6 @@ import (
 
 // TODO wkpo move to gengo!!
 // TODO wkpo check all parameters used...?
-// TODO wkpo capture panics and klog.Fatal then in k8s code...?
 
 type ConversionGenerator struct {
 	generator.DefaultGen
@@ -95,7 +94,7 @@ func findManualConversionFunctions(context *generator.Context, tracker *ManualCo
 
 // WithTagName allows setting the tag name, ie the marker that this generator
 // will look for in comments on types.
-// * "<tag-name>=false" in a type's comment will instruct conversion-gen to skip that type.
+// * "+<tag-name>=false" in a type's comment will instruct conversion-gen to skip that type.
 func (g *ConversionGenerator) WithTagName(tagName string) *ConversionGenerator {
 	g.tagName = tagName
 	return g
@@ -103,11 +102,11 @@ func (g *ConversionGenerator) WithTagName(tagName string) *ConversionGenerator {
 
 // WithFunctionTagName allows setting the function tag name, ie the marker that this generator
 // will look for in comments on manual conversion functions. In a function's comments:
-// * "<tag-name>=copy-only" : copy-only functions that are directly assignable can be inlined
+// * "+<tag-name>=copy-only" : copy-only functions that are directly assignable can be inlined
 // 	 instead of invoked. As an example, conversion functions exist that allow types with private
 //   fields to be correctly copied between types. These functions are equivalent to a memory assignment,
 //	 and are necessary for the reflection path, but should not block memory conversion.
-// * "<tag-name>=drop" means to drop that conversion altogether.
+// * "+<tag-name>=drop" means to drop that conversion altogether.
 func (g *ConversionGenerator) WithFunctionTagName(functionTagName string) *ConversionGenerator {
 	g.functionTagName = functionTagName
 	return g
@@ -177,7 +176,6 @@ func (g *ConversionGenerator) WithUnsupportedTypesHandler(handler func(inVar, ou
 	return g
 }
 
-// TODO wkpo next from here
 // WithExternalConversionsHandler allows setting a callback to decide what happens when converting
 // from inVar.Type to outVar.Type, but outVar.Type is in a different package than inVar.Type - and so
 // this generator can't know where to find a conversion function for that.
@@ -194,12 +192,12 @@ func (g *ConversionGenerator) WithExternalConversionsHandler(handler func(inVar,
 	return g
 }
 
-// TODO wkpo comment?
+// Namers returns the name system used by ConversionGenerators.
 func (g *ConversionGenerator) Namers(context *generator.Context) namer.NameSystems {
 	return namer.NameSystems{
 		"raw": namer.NewRawNamer(g.outputPackage, g.importTracker),
 		"publicIT": &namerPlusImportTracking{
-			delegate: conversionNamer(),
+			delegate: ConversionNamer(),
 			tracker:  g.importTracker,
 		},
 	}
@@ -215,16 +213,13 @@ func (n *namerPlusImportTracking) Name(t *types.Type) string {
 	return n.delegate.Name(t)
 }
 
-// TODO wkpo comment?
+// Filter filters the types this generator operates on.
 func (g *ConversionGenerator) Filter(context *generator.Context, t *types.Type) bool {
 	peerType := g.GetPeerTypeFor(context, t)
-	wkpo := peerType != nil && g.convertibleOnlyWithinPackage(t, peerType)
-
-	klog.Infof("wkpo bordel Filter %s => %s (%s && %s)", t.Name.Name, wkpo, peerType != nil, peerType != nil && g.convertibleOnlyWithinPackage(t, peerType))
-	return wkpo
+	return peerType != nil && g.convertibleOnlyWithinPackage(t, peerType)
 }
 
-// TODO wkpo comment?
+// Imports returns the imports to add to generated files.
 func (g *ConversionGenerator) Imports(context *generator.Context) (imports []string) {
 	var importLines []string
 	for _, singleImport := range g.importTracker.ImportLines() {
@@ -245,21 +240,19 @@ func (g *ConversionGenerator) isOtherPackage(pkg string) bool {
 	return true
 }
 
-// TODO wkpo comment?
+// GenerateType processes the given type.
 func (g *ConversionGenerator) GenerateType(context *generator.Context, t *types.Type, writer io.Writer) error {
 	klog.V(5).Infof("generating for type %v", t)
 	peerType := g.GetPeerTypeFor(context, t)
-	sw := generator.NewSnippetWriter(writer, context, "$", "$")
+	sw := generator.NewSnippetWriter(writer, context, snippetDelimiter, snippetDelimiter)
 	g.generateConversion(t, peerType, sw)
 	g.generateConversion(peerType, t, sw)
 	return sw.Error()
 
 }
 
-// TODO wkpo comment?
 func (g *ConversionGenerator) generateConversion(inType, outType *types.Type, sw *generator.SnippetWriter) {
 	// function signature
-	// TODO wkpo publicIT namer???
 	sw.Do("func auto", nil)
 	g.writeConversionFunctionSignature(inType, outType, sw, true)
 	sw.Do(" {\n", nil)
@@ -271,7 +264,6 @@ func (g *ConversionGenerator) generateConversion(inType, outType *types.Type, sw
 	sw.Do("return nil\n", nil)
 	sw.Do("}\n\n", nil)
 
-	// TODO wkpo next from here if present??
 	if _, found := g.preexists(inType, outType); found {
 		// there is a public manual Conversion method: use it.
 		return
@@ -281,8 +273,7 @@ func (g *ConversionGenerator) generateConversion(inType, outType *types.Type, sw
 		// Emit a public conversion function.
 		sw.Do("// "+conversionFunctionNameTemplate("publicIT")+" is an autogenerated conversion function.\nfunc ", argsFromType(inType, outType))
 		g.writeConversionFunctionSignature(inType, outType, sw, true)
-		sw.Do(" {\n", nil)
-		sw.Do("return auto", nil) // TODO wkpo consolidate ^ ?
+		sw.Do(" {\nreturn auto", nil)
 		g.writeConversionFunctionSignature(inType, outType, sw, false)
 		sw.Do("\n}\n\n", nil)
 		return
@@ -319,9 +310,6 @@ func (g *ConversionGenerator) writeConversionFunctionSignature(inType, outType *
 	}
 }
 
-// TODO wkpo next from here ^!!
-
-// TODO more wkpo comment?
 // we use the system of shadowing 'in' and 'out' so that the same code is valid
 // at any nesting level. This makes the autogenerator easy to understand, and
 // the compiler shouldn't care.
@@ -348,8 +336,6 @@ func (g *ConversionGenerator) generateFor(inType, outType *types.Type, sw *gener
 
 	return f(inType, outType, sw)
 }
-
-// TODO wkpo replace all sw s with textmate
 
 func (g *ConversionGenerator) doBuiltin(inType, outType *types.Type, sw *generator.SnippetWriter) []error {
 	if inType == outType {
