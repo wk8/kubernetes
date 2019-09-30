@@ -488,21 +488,6 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 
 		args := argsFromType(inMemberType, outMemberType).With("name", inMember.Name)
 
-		// check based on the top level name, not the underlying names
-		if function, ok := g.preexists(inMember.Type, outMember.Type); ok {
-			if g.functionHasTag(function, "drop") {
-				continue
-			}
-			if !g.isCopyOnlyFunction(function) || !isFastConversion(inMemberType, outMemberType) {
-				args["function"] = function
-				sw.Do("if err := $.function|raw$(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
-				sw.Do("return err\n", nil)
-				sw.Do("}\n", nil)
-				continue
-			}
-			klog.V(5).Infof("Skipped function %s because it is copy-only and we can use direct assignment", function.Name)
-		}
-
 		// try a direct memory copy for any type that has exactly equivalent values
 		// TODO wkpo on hit ca pour autoConvert_v1beta1_NetworkPolicyEgressRule_To_networking_NetworkPolicyEgressRule
 		if g.sameMemoryLayout(inMemberType, outMemberType) {
@@ -518,6 +503,21 @@ func (g *ConversionGenerator) doStruct(inType, outType *types.Type, sw *generato
 				sw.Do("out.$.name$ = *(*$.outType|raw$)($.Pointer|raw$(&in.$.name$))\n", args)
 				continue
 			}
+		}
+
+		// check based on the top level name, not the underlying names
+		if function, ok := g.preexists(inMember.Type, outMember.Type); ok {
+			if g.functionHasTag(function, "drop") {
+				continue
+			}
+			if !g.isCopyOnlyFunction(function) || !isFastConversion(inMemberType, outMemberType) {
+				args["function"] = function
+				sw.Do("if err := $.function|raw$(&in.$.name$, &out.$.name$, s); err != nil {\n", args)
+				sw.Do("return err\n", nil)
+				sw.Do("}\n", nil)
+				continue
+			}
+			klog.V(5).Infof("Skipped function %s because it is copy-only and we can use direct assignment", function.Name)
 		}
 
 		// If we can't auto-convert, punt before we emit any code.

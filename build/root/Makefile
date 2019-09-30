@@ -561,16 +561,6 @@ generated_files gen_openapi:
 	$(MAKE) -f Makefile.generated_files $@ CALLED_FROM_MAIN_MAKEFILE=1
 endif
 
-wkpo:
-	$(MAKE) -f Makefile.generated_files gen_conversion CALLED_FROM_MAIN_MAKEFILE=1
-#	time _output/bin/conversion-gen -v 8 --extra-peer-dirs k8s.io/kubernetes/pkg/apis/core,k8s.io/kubernetes/pkg/apis/core/v1,k8s.io/api/core/v1 -O zz_generated.conversion -i k8s.io/kubernetes/pkg/apis/extensions/v1beta1
-	rm -vf pkg/apis/admission/v1/zz_generated.conversion.go
-	time _output/bin/conversion-gen -v 8 --extra-peer-dirs k8s.io/kubernetes/pkg/apis/core,k8s.io/kubernetes/pkg/apis/core/v1,k8s.io/api/core/v1 -O zz_generated.conversion -i k8s.io/kubernetes/pkg/apis/admission/v1
-
-wkpo_compile:
-	git checkout master build/root/ && make WHAT=./vendor/k8s.io/code-generator/cmd/conversion-gen || true
-	git checkout HEAD build/root/
-
 define HELP_INFO
 # Print make targets and help info
 #
