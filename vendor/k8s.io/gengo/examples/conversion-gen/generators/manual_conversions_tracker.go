@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
-	"text/template"
 
 	"k8s.io/klog"
 
@@ -148,22 +147,7 @@ func (t *ManualConversionsTracker) preexists(inType, outType *types.Type) (*type
 	return function, ok
 }
 
-// conversionFunctionName returns the expected name of the conversion name for in to out.
+// conversionFunctionName returns the name of the conversion function for in to out.
 func (t *ManualConversionsTracker) conversionFunctionName(in, out *types.Type) string {
-	namerName := "conversion"
-	tmpl, err := template.New("manual conversion function name").
-		Delims(snippetDelimiter, snippetDelimiter).
-		Funcs(map[string]interface{}{namerName: t.conversionNamer.Name}).
-		Parse(conversionFunctionNameTemplate(namerName))
-	if err != nil {
-		// this really shouldn't error out
-		klog.Fatalf("error when generating conversion function name: %v", err)
-	}
-	t.buffer.Reset()
-	err = tmpl.Execute(t.buffer, argsFromType(in, out))
-	if err != nil {
-		// this really shouldn't error out
-		klog.Fatalf("error when generating conversion function name: %v", err)
-	}
-	return t.buffer.String()
+	return conversionFunctionName(in, out, t.conversionNamer, t.buffer)
 }

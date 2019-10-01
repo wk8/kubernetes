@@ -11,7 +11,7 @@ type unsafeConversionArbitrator struct {
 	functionTagName          string
 }
 
-func newMemoryLayoutComparator(manualConversionsTracker *ManualConversionsTracker) *unsafeConversionArbitrator {
+func newUnsafeConversionArbitrator(manualConversionsTracker *ManualConversionsTracker) *unsafeConversionArbitrator {
 	return &unsafeConversionArbitrator{
 		processedPairs:           make(map[ConversionPair]bool),
 		manualConversionsTracker: manualConversionsTracker,

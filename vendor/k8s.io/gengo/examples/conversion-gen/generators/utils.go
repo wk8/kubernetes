@@ -1,12 +1,15 @@
 package generators
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
+	"text/template"
 
 	"k8s.io/gengo/generator"
 	"k8s.io/gengo/namer"
 	"k8s.io/gengo/types"
+	"k8s.io/klog"
 )
 
 // a ConversionPair represents a conversion pair from inType to outType
@@ -46,6 +49,8 @@ func argsFromType(inType, outType *types.Type) generator.Args {
 }
 
 // ConversionNamer returns a namer for conversion function names.
+// It is a good namer to use as a default namer when using conversion generators,
+// so as to limit the number of changes the generator makes.
 func ConversionNamer() *namer.NameStrategy {
 	return &namer.NameStrategy{
 		Join: func(pre string, in []string, post string) string {
@@ -108,4 +113,28 @@ func functionHasTag(function *types.Type, functionTagName, tagValue string) bool
 
 func isCopyOnlyFunction(function *types.Type, functionTagName string) bool {
 	return functionHasTag(function, functionTagName, "copy-only")
+}
+
+// ConversionFunctionName returns the name of the conversion function for in to out.
+func ConversionFunctionName(in, out *types.Type) string {
+	return conversionFunctionName(in, out, ConversionNamer(), &bytes.Buffer{})
+}
+
+func conversionFunctionName(in, out *types.Type, conversionNamer *namer.NameStrategy, buffer *bytes.Buffer) string {
+	namerName := "conversion"
+	tmpl, err := template.New(fmt.Sprintf("conversion function name from %s to %s", in.Name, out.Name)).
+		Delims(snippetDelimiter, snippetDelimiter).
+		Funcs(map[string]interface{}{namerName: conversionNamer.Name}).
+		Parse(conversionFunctionNameTemplate(namerName))
+	if err != nil {
+		// this really shouldn't error out
+		klog.Fatalf("error when generating conversion function name: %v", err)
+	}
+	buffer.Reset()
+	err = tmpl.Execute(buffer, argsFromType(in, out))
+	if err != nil {
+		// this really shouldn't error out
+		klog.Fatalf("error when generating conversion function name: %v", err)
+	}
+	return buffer.String()
 }

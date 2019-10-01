@@ -217,18 +217,18 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 	return packages
 }
 
-func missingFieldsHandler(inVar, outVar gengoconversiongen.NamedVariable, member *types.Member, sw *generator.SnippetWriter) error {
+func missingFieldsHandler(_, _ gengoconversiongen.NamedVariable, member *types.Member, sw *generator.SnippetWriter) error {
 	sw.Do("// WARNING: in."+member.Name+" requires manual conversion: does not exist in peer-type\n", nil)
 	return fmt.Errorf("field " + member.Name + "requires manual conversion")
 }
 
-func inconvertibleFieldsHandler(inVar, outVar gengoconversiongen.NamedVariable, inMember, outMember *types.Member, sw *generator.SnippetWriter) error {
+func inconvertibleFieldsHandler(_, _ gengoconversiongen.NamedVariable, inMember, outMember *types.Member, sw *generator.SnippetWriter) error {
 	sw.Do("// WARNING: in."+inMember.Name+" requires manual conversion: inconvertible types ("+
 		inMember.Type.String()+" vs "+outMember.Type.String()+")\n", nil)
 	return fmt.Errorf("field " + inMember.Name + "requires manual conversion")
 }
 
-func unsupportedTypesHandler(inVar, outVar gengoconversiongen.NamedVariable, sw *generator.SnippetWriter) error {
+func unsupportedTypesHandler(inVar, _ gengoconversiongen.NamedVariable, sw *generator.SnippetWriter) error {
 	sw.Do("// FIXME: Type $.|raw$ is unsupported.\n", inVar.Type)
 
 	return nil
@@ -249,6 +249,13 @@ type genConversion struct {
 	generatedTypes []*types.Type
 	// outputPackage is the package that the conversion funcs are going to be output to.
 	outputPackage string
+}
+
+// Namers returns the name system used by ConversionGenerators.
+func (g *genConversion) Namers(context *generator.Context) namer.NameSystems {
+	namers := g.ConversionGenerator.Namers(context)
+	namers["raw"] = namer.NewRawNamer(g.outputPackage, g.ConversionGenerator.ImportTracker)
+	return namers
 }
 
 func (g *genConversion) Filter(context *generator.Context, t *types.Type) bool {
@@ -277,9 +284,9 @@ func (g *genConversion) Init(context *generator.Context, writer io.Writer) error
 	for _, t := range g.generatedTypes {
 		peerType := g.GetPeerTypeFor(context, t)
 		args := argsFromType(t, peerType).With("Scope", types.Ref(conversionPackagePath, "Scope"))
-		sw.Do("if err := s.AddGeneratedConversionFunc((*$.inType|raw$)(nil), (*$.outType|raw$)(nil), func(a, b interface{}, scope $.Scope|raw$) error { return "+conversionFunctionNameTemplate("publicIT")+"(a.(*$.inType|raw$), b.(*$.outType|raw$), scope) }); err != nil { return err }\n", args)
+		sw.Do("if err := s.AddGeneratedConversionFunc((*$.inType|raw$)(nil), (*$.outType|raw$)(nil), func(a, b interface{}, scope $.Scope|raw$) error { return "+gengoconversiongen.ConversionFunctionName(t, peerType)+"(a.(*$.inType|raw$), b.(*$.outType|raw$), scope) }); err != nil { return err }\n", args)
 		args = argsFromType(peerType, t).With("Scope", types.Ref(conversionPackagePath, "Scope"))
-		sw.Do("if err := s.AddGeneratedConversionFunc((*$.inType|raw$)(nil), (*$.outType|raw$)(nil), func(a, b interface{}, scope $.Scope|raw$) error { return "+conversionFunctionNameTemplate("publicIT")+"(a.(*$.inType|raw$), b.(*$.outType|raw$), scope) }); err != nil { return err }\n", args)
+		sw.Do("if err := s.AddGeneratedConversionFunc((*$.inType|raw$)(nil), (*$.outType|raw$)(nil), func(a, b interface{}, scope $.Scope|raw$) error { return "+gengoconversiongen.ConversionFunctionName(peerType, t)+"(a.(*$.inType|raw$), b.(*$.outType|raw$), scope) }); err != nil { return err }\n", args)
 	}
 
 	manualConversions := g.ManualConversions()
