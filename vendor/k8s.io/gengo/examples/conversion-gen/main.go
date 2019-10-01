@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors.
+Copyright 2019 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -39,12 +39,7 @@ limitations under the License.
 // assignment wherever possible.  For compound types, the generated
 // conversion functions call the `Convert...` functions for the
 // subsidiary types.  Thus developers can override the behavior for
-// selected types.  For a top-level object type (i.e., the type of an
-// object that will be input to an apiserver), for such an override to
-// be used by the apiserver the developer-maintained conversion
-// functions must also be registered by invoking the
-// `AddConversionFuncs` method of the relevant `Scheme` object from
-// k8s.io/apimachinery/pkg/runtime.
+// selected types.
 //
 // `conversion-gen` will scan its `--input-dirs`, looking at the
 // package defined in each of those directories for comment tags that
@@ -65,8 +60,7 @@ limitations under the License.
 // For each conversion code generation task, the full set of internal
 // packages (AKA peer packages) consists of the ones specified in the
 // `k8s:conversion-gen` tags PLUS any specified in the
-// `--base-peer-dirs` and `--extra-peer-dirs` flags on the command
-// line.
+// `--peer-dirs` flags on the command line.
 //
 // When generating for a package, individual types or fields of structs may opt
 // out of Conversion generation by specifying a comment on the of the form:
@@ -75,24 +69,17 @@ package main
 
 import (
 	"flag"
-	"path/filepath"
 
 	"github.com/spf13/pflag"
-	"k8s.io/gengo/args"
-	"k8s.io/gengo/examples/conversion-gen/generators"
 	"k8s.io/klog"
 
-	generatorargs "k8s.io/code-generator/cmd/conversion-gen/args"
-	"k8s.io/code-generator/pkg/util"
+	generatorargs "k8s.io/gengo/examples/conversion-gen/args"
+	"k8s.io/gengo/examples/conversion-gen/generators"
 )
 
 func main() {
 	klog.InitFlags(nil)
 	genericArgs, customArgs := generatorargs.NewDefaults()
-
-	// Override defaults.
-	// TODO: move this out of conversion-gen
-	genericArgs.GoHeaderFilePath = filepath.Join(args.DefaultSourceTree(), util.BoilerplatePath())
 
 	genericArgs.AddFlags(pflag.CommandLine)
 	customArgs.AddFlags(pflag.CommandLine)
