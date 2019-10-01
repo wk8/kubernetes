@@ -179,7 +179,6 @@ func (g *ConversionGenerator) WithMissingFieldsHandler(handler func(inVar, outVa
 // If this is not set, missing fields are silently ignored.
 // Note that the snippet writer's context is that of the generator (in particular, it can use
 // any namers defined by the generator).
-// TODO wkpo challenge this shit ^ ?
 func (g *ConversionGenerator) WithInconvertibleFieldsHandler(handler func(inVar, outVar NamedVariable, inMember, outMember *types.Member, sw *generator.SnippetWriter) error) *ConversionGenerator {
 	g.inconvertibleFieldsHandler = handler
 	return g
@@ -732,8 +731,6 @@ func (g *ConversionGenerator) optedOut(t interface{}) bool {
 }
 
 func (g *ConversionGenerator) extractTag(comments []string) []string {
-	// TODO wkpo nice! ya le meme pour doc.go? on peut pas re utiliser ca pour csi-gen plutot que du regex parsing?
-	// TODO wkpo en tout cas on devrait appeler ca un tag aussi, for consistency
 	if g.tagName == "" {
 		return nil
 	}

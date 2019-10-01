@@ -85,9 +85,13 @@ func DefaultNameSystem() string {
 }
 
 func Packages(context *generator.Context, arguments *args.GeneratorArgs) generator.Packages {
-	boilerplate, err := arguments.LoadGoBoilerplate()
-	if err != nil {
-		klog.Fatalf("Failed loading boilerplate: %v", err)
+	var boilerplate []byte
+	if arguments.GoHeaderFilePath != "" {
+		var err error
+		boilerplate, err = arguments.LoadGoBoilerplate()
+		if err != nil {
+			klog.Fatalf("Failed loading boilerplate: %v", err)
+		}
 	}
 
 	packages := generator.Packages{}
