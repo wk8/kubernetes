@@ -17,15 +17,18 @@ limitations under the License.
 package plugins
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog"
 	"k8s.io/kubernetes/pkg/scheduler/algorithm/predicates"
 	"k8s.io/kubernetes/pkg/scheduler/algorithm/priorities"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/imagelocality"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/interpodaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodelabel"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodename"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodepreferavoidpods"
@@ -33,6 +36,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodevolumelimits"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/podtopologyspread"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/requestedtocapacityratio"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/volumebinding"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/volumerestrictions"
@@ -46,9 +50,9 @@ type RegistryArgs struct {
 	VolumeBinder *volumebinder.VolumeBinder
 }
 
-// NewDefaultRegistry builds a default registry with all the default plugins.
-// This is the registry that Kubernetes default scheduler uses. A scheduler that
-// runs custom plugins, can pass a different Registry when initializing the scheduler.
+// NewDefaultRegistry builds the default registry with all the in-tree plugins.
+// This is the registry that Kubernetes default scheduler uses. A scheduler that runs out of tree
+// plugins can register additional plugins through the WithFrameworkOutOfTreeRegistry option.
 func NewDefaultRegistry(args *RegistryArgs) framework.Registry {
 	return framework.Registry{
 		imagelocality.Name:                   imagelocality.New,
@@ -74,6 +78,8 @@ func NewDefaultRegistry(args *RegistryArgs) framework.Registry {
 		nodevolumelimits.AzureDiskName: nodevolumelimits.NewAzureDisk,
 		nodevolumelimits.CinderName:    nodevolumelimits.NewCinder,
 		interpodaffinity.Name:          interpodaffinity.New,
+		nodelabel.Name:                 nodelabel.New,
+		requestedtocapacityratio.Name:  requestedtocapacityratio.New,
 	}
 }
 
@@ -83,6 +89,10 @@ func NewDefaultRegistry(args *RegistryArgs) framework.Registry {
 type ConfigProducerArgs struct {
 	// Weight used for priority functions.
 	Weight int32
+	// NodeLabelArgs is the args for the NodeLabel plugin.
+	NodeLabelArgs *nodelabel.Args
+	// RequestedToCapacityRatioArgs is the args for the RequestedToCapacityRatio plugin.
+	RequestedToCapacityRatioArgs *requestedtocapacityratio.Args
 }
 
 // ConfigProducer produces a framework's configuration.
@@ -191,6 +201,13 @@ func NewDefaultConfigProducerRegistry() *ConfigProducerRegistry {
 			plugins.Filter = appendToPluginSet(plugins.Filter, podtopologyspread.Name, nil)
 			return
 		})
+	registry.RegisterPredicate(nodelabel.Name,
+		func(args ConfigProducerArgs) (plugins config.Plugins, pluginConfig []config.PluginConfig) {
+			plugins.Filter = appendToPluginSet(plugins.Filter, nodelabel.Name, nil)
+			pluginConfig = append(pluginConfig, makePluginConfig(nodelabel.Name, args.NodeLabelArgs))
+			return
+		})
+
 	// Register Priorities.
 	registry.RegisterPriority(priorities.TaintTolerationPriority,
 		func(args ConfigProducerArgs) (plugins config.Plugins, pluginConfig []config.PluginConfig) {
@@ -231,6 +248,13 @@ func NewDefaultConfigProducerRegistry() *ConfigProducerRegistry {
 			return
 		})
 
+	registry.RegisterPriority(requestedtocapacityratio.Name,
+		func(args ConfigProducerArgs) (plugins config.Plugins, pluginConfig []config.PluginConfig) {
+			plugins.Score = appendToPluginSet(plugins.Score, requestedtocapacityratio.Name, &args.Weight)
+			pluginConfig = append(pluginConfig, makePluginConfig(requestedtocapacityratio.Name, args.RequestedToCapacityRatioArgs))
+			return
+		})
+
 	return registry
 }
 
@@ -262,4 +286,17 @@ func appendToPluginSet(set *config.PluginSet, name string, weight *int32) *confi
 	}
 	set.Enabled = append(set.Enabled, cfg)
 	return set
+}
+
+func makePluginConfig(pluginName string, args interface{}) config.PluginConfig {
+	encoding, err := json.Marshal(args)
+	if err != nil {
+		klog.Fatal(fmt.Errorf("Failed to marshal %+v: %v", args, err))
+		return config.PluginConfig{}
+	}
+	config := config.PluginConfig{
+		Name: pluginName,
+		Args: runtime.Unknown{Raw: encoding},
+	}
+	return config
 }

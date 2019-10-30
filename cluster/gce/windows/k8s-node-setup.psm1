@@ -147,6 +147,43 @@ function Dump-DebugInfoToConsole {
   } Catch { }
 }
 
+# Converts the kube-env string in Yaml
+#
+# Returns: a PowerShell Hashtable object containing the key-value pairs from
+#   kube-env.
+function ConvertFrom-Yaml-KubeEnv {
+  param (
+    [parameter(Mandatory=$true)] [string]$kube_env_str
+  )
+  $kube_env_table = @{}
+  $currentLine = $null
+  switch -regex (${kube_env_str} -split '\r?\n') {
+      '^(\S.*)' {
+          # record start pattern, line that doesn't start with a whitespace
+          if ($null -ne $currentLine) {
+              $key, $val = $currentLine -split ":",2
+              $kube_env_table[$key] = $val.Trim("'", " ", "`"")
+          }
+          $currentLine = $matches.1
+          continue
+      }
+
+      '^(\s+.*)' {
+          # line that start with whitespace
+          $currentLine += $matches.1
+          continue
+      }
+  }
+
+  # Handle the last line if any
+  if ($currentLine) {
+      $key, $val = $currentLine -split ":",2
+      $kube_env_table[$key] = $val.Trim("'", " ", "`"")
+  }
+
+  return ${kube_env_table}
+}
+
 # Fetches the kube-env from the instance metadata.
 #
 # Returns: a PowerShell Hashtable object containing the key-value pairs from
@@ -157,13 +194,13 @@ function Fetch-KubeEnv {
   #   ${kube_env} = Get-InstanceMetadataAttribute 'kube-env'
   # or:
   #   ${kube_env} = [IO.File]::ReadAllText(".\kubeEnv.txt")
-  # ${kube_env_table} = ConvertFrom-Yaml ${kube_env}
+  # ${kube_env_table} = ConvertFrom-Yaml-KubeEnv ${kube_env}
   # ${kube_env_table}
   # ${kube_env_table}.GetType()
 
   # The type of kube_env is a powershell String.
   $kube_env = Get-InstanceMetadataAttribute 'kube-env'
-  $kube_env_table = ConvertFrom-Yaml ${kube_env}
+  $kube_env_table = ConvertFrom-Yaml-KubeEnv ${kube_env}
   return ${kube_env_table}
 }
 
@@ -238,10 +275,6 @@ function Set-PrerequisiteOptions {
   # Use TLS 1.2: needed for Invoke-WebRequest downloads from github.com.
   [Net.ServicePointManager]::SecurityProtocol = `
       [Net.SecurityProtocolType]::Tls12
-
-  # https://github.com/cloudbase/powershell-yaml
-  Log-Output "Installing powershell-yaml module from external repo"
-  Install-Module -Name powershell-yaml -Force
 }
 
 # Creates directories where other functions in this module will read and write
@@ -818,18 +851,18 @@ Import-Module -Name $modulePath'.replace('K8S_DIR', ${env:K8S_DIR})
 #   CLUSTER_IP_RANGE
 #   SERVICE_CLUSTER_IP_RANGE
 function Configure-CniNetworking {
-  $CNI_RELEASE_VERSION = 'v0.8.0'
+  $CNI_RELEASE_VERSION = 'v0.8.2-gke.0'
   if ((ShouldWrite-File ${env:CNI_DIR}\win-bridge.exe) -or
       (ShouldWrite-File ${env:CNI_DIR}\host-local.exe)) {
     $tmp_dir = 'C:\cni_tmp'
     New-Item $tmp_dir -ItemType 'directory' -Force | Out-Null
 
-    $release_url = ('https://github.com/containernetworking/plugins/releases/' +
-        'download/' + $CNI_RELEASE_VERSION + '/')
+    $release_url = ('https://www.googleapis.com/storage/v1/b/gke-release/o/cni-plugins%2f' +
+        $CNI_RELEASE_VERSION + '%2f')
     $sha_url = ($release_url +
-        "cni-plugins-windows-amd64-$CNI_RELEASE_VERSION.tgz.sha1")
+        "cni-plugins-windows-amd64-$CNI_RELEASE_VERSION.tgz.sha1?alt=media")
     $tgz_url = ($release_url +
-        "cni-plugins-windows-amd64-$CNI_RELEASE_VERSION.tgz")
+        "cni-plugins-windows-amd64-$CNI_RELEASE_VERSION.tgz?alt=media")
     MustDownload-File -URLs $sha_url -OutFile $tmp_dir\cni-plugins.sha1
     $sha1_val = ($(Get-Content $tmp_dir\cni-plugins.sha1) -split ' ',2)[0]
     MustDownload-File `

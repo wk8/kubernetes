@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -46,9 +47,11 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	extenderv1 "k8s.io/kubernetes/pkg/scheduler/apis/extender/v1"
 	frameworkplugins "k8s.io/kubernetes/pkg/scheduler/framework/plugins"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodelabel"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 	internalcache "k8s.io/kubernetes/pkg/scheduler/internal/cache"
 	internalqueue "k8s.io/kubernetes/pkg/scheduler/internal/queue"
+	schedulerlisters "k8s.io/kubernetes/pkg/scheduler/listers"
 	schedulernodeinfo "k8s.io/kubernetes/pkg/scheduler/nodeinfo"
 )
 
@@ -102,11 +105,47 @@ func TestCreateFromConfig(t *testing.T) {
 		t.Errorf("Invalid configuration: %v", err)
 	}
 
-	factory.CreateFromConfig(policy)
+	conf, err := factory.CreateFromConfig(policy)
+	if err != nil {
+		t.Fatalf("CreateFromConfig failed: %v", err)
+	}
 	hpa := factory.GetHardPodAffinitySymmetricWeight()
 	if hpa != v1.DefaultHardPodAffinitySymmetricWeight {
 		t.Errorf("Wrong hardPodAffinitySymmetricWeight, ecpected: %d, got: %d", v1.DefaultHardPodAffinitySymmetricWeight, hpa)
 	}
+
+	// Verify that custom predicates are converted to framework plugins.
+	if !pluginExists(nodelabel.Name, "FilterPlugin", conf) {
+		t.Error("NodeLabel plugin not exist in framework.")
+	}
+	// Verify that the policy config is converted to plugin config for custom predicates.
+	nodeLabelConfig := findPluginConfig(nodelabel.Name, conf)
+	encoding, err := json.Marshal(nodeLabelConfig)
+	if err != nil {
+		t.Errorf("Failed to marshal %+v: %v", nodeLabelConfig, err)
+	}
+	want := `{"Name":"NodeLabel","Args":{"labels":["zone"],"presence":true}}`
+	if string(encoding) != want {
+		t.Errorf("Config for NodeLabel plugin mismatch. got: %v, want: %v", string(encoding), want)
+	}
+}
+
+func pluginExists(name, extensionPoint string, schedConf *Config) bool {
+	for _, pl := range schedConf.Framework.ListPlugins()[extensionPoint] {
+		if pl.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func findPluginConfig(name string, schedConf *Config) config.PluginConfig {
+	for _, c := range schedConf.PluginConfig {
+		if c.Name == name {
+			return c
+		}
+	}
+	return config.PluginConfig{}
 }
 
 func TestCreateFromConfigWithHardPodAffinitySymmetricWeight(t *testing.T) {
@@ -243,7 +282,7 @@ func PredicateFunc(pod *v1.Pod, meta predicates.PredicateMetadata, nodeInfo *sch
 	return true, nil, nil
 }
 
-func PriorityFunc(pod *v1.Pod, nodeNameToInfo map[string]*schedulernodeinfo.NodeInfo, nodes []*v1.Node) (framework.NodeScoreList, error) {
+func PriorityFunc(pod *v1.Pod, sharedLister schedulerlisters.SharedLister, nodes []*v1.Node) (framework.NodeScoreList, error) {
 	return []framework.NodeScore{}, nil
 }
 

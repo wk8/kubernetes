@@ -1,5 +1,5 @@
 /*
-Copyright 2017 The Kubernetes Authors.
+Copyright 2019 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,13 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1
+// Package v1beta1 contains definition of kms-plugin's gRPC service.
+package v1beta1
 
-import (
-	"k8s.io/apimachinery/pkg/runtime"
-)
-
-func addConversionFuncs(scheme *runtime.Scheme) error {
-	// Add non-generated conversion functions
-	return scheme.AddConversionFuncs()
+// IsVersionCheckMethod determines whether the supplied method is a version check against kms-plugin.
+func IsVersionCheckMethod(method string) bool {
+	return method == "/v1beta1.KeyManagementService/Version"
 }

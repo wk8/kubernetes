@@ -1,6 +1,6 @@
 dependencies:
   - name: "etcd"
-    version: 3.3.17
+    version: 3.4.3
     refPaths:
     - path: cluster/gce/manifests/etcd.manifest
       match: etcd_docker_tag|etcd_version
@@ -25,7 +25,7 @@ dependencies:
       match: const etcdImage
 
   - name: "docker"
-    version: 18.09
+    version: 19.03
     refPaths:
     - path: cmd/kubeadm/app/util/system/docker_validator.go
       match: latestValidatedDockerVersion

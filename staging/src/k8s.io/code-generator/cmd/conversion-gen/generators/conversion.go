@@ -270,7 +270,7 @@ type genConversion struct {
 // Namers returns the name system used by ConversionGenerators.
 func (g *genConversion) Namers(context *generator.Context) namer.NameSystems {
 	namers := g.ConversionGenerator.Namers(context)
-	namers["raw"] = namer.NewRawNamer(g.outputPackage, g.ConversionGenerator.ImportTracker)
+	namers["raw"] = namer.NewRawNamer(g.outputPackage, g.ImportTracker)
 	return namers
 }
 
@@ -320,7 +320,7 @@ func getExplicitFromTypes(t *types.Type) []types.Name {
 }
 
 func (g *genConversion) GenerateType(context *generator.Context, t *types.Type, w io.Writer) error {
-	if peerType := g.ConversionGenerator.GetPeerTypeFor(context, t); peerType != nil {
+	if peerType := g.GetPeerTypeFor(context, t); peerType != nil {
 		if err := g.ConversionGenerator.GenerateType(context, t, w); err != nil {
 			return err
 		}
@@ -384,7 +384,7 @@ func (g *genConversion) generateFromUrlValues(inType, outType *types.Type, sw *g
 	sw.Do("return nil\n", nil)
 	sw.Do("}\n\n", nil)
 
-	if _, found := g.ConversionGenerator.Preexists(inType, outType); found {
+	if _, found := g.Preexists(inType, outType); found {
 		// There is a public manual Conversion method: use it.
 	} else {
 		// Emit a public conversion function.
@@ -400,7 +400,7 @@ func (g *genConversion) fromValuesEntry(inType *types.Type, outMember types.Memb
 		"name": outMember.Name,
 		"type": outMember.Type,
 	}
-	if function, ok := g.ConversionGenerator.Preexists(inType, outMember.Type); ok {
+	if function, ok := g.Preexists(inType, outMember.Type); ok {
 		args := memberArgs.With("function", function)
 		sw.Do("if err := $.function|raw$(&values, &out.$.name$, s); err != nil {\n", args)
 		sw.Do("return err\n", nil)
@@ -410,7 +410,7 @@ func (g *genConversion) fromValuesEntry(inType *types.Type, outMember types.Memb
 	switch {
 	case outMember.Type == types.String:
 		sw.Do("out.$.name$ = values[0]\n", memberArgs)
-	case g.ConversionGenerator.CanUseUnsafeConversion(inType, outMember.Type):
+	case g.CanUseUnsafeConversion(inType, outMember.Type):
 		args := memberArgs.With("Pointer", types.Ref("unsafe", "Pointer"))
 		switch inType.Kind {
 		case types.Pointer:
@@ -494,10 +494,14 @@ func (g *genConversion) Init(context *generator.Context, writer io.Writer) error
 	sw.Do("func RegisterConversions(s $.|raw$) error {\n", schemePtr)
 	for _, t := range g.generatedTypes {
 		peerType := g.GetPeerTypeFor(context, t)
-		args := argsFromType(t, peerType).With("Scope", types.Ref(conversionPackagePath, "Scope"))
-		sw.Do("if err := s.AddGeneratedConversionFunc((*$.inType|raw$)(nil), (*$.outType|raw$)(nil), func(a, b interface{}, scope $.Scope|raw$) error { return "+genericconversiongenerator.ConversionFunctionName(t, peerType)+"(a.(*$.inType|raw$), b.(*$.outType|raw$), scope) }); err != nil { return err }\n", args)
-		args = argsFromType(peerType, t).With("Scope", types.Ref(conversionPackagePath, "Scope"))
-		sw.Do("if err := s.AddGeneratedConversionFunc((*$.inType|raw$)(nil), (*$.outType|raw$)(nil), func(a, b interface{}, scope $.Scope|raw$) error { return "+genericconversiongenerator.ConversionFunctionName(peerType, t)+"(a.(*$.inType|raw$), b.(*$.outType|raw$), scope) }); err != nil { return err }\n", args)
+		if _, found := g.Preexists(t, peerType); !found {
+			args := argsFromType(t, peerType).With("Scope", types.Ref(conversionPackagePath, "Scope"))
+			sw.Do("if err := s.AddGeneratedConversionFunc((*$.inType|raw$)(nil), (*$.outType|raw$)(nil), func(a, b interface{}, scope $.Scope|raw$) error { return "+genericconversiongenerator.ConversionFunctionName(t, peerType)+"(a.(*$.inType|raw$), b.(*$.outType|raw$), scope) }); err != nil { return err }\n", args)
+		}
+		if _, found := g.Preexists(peerType, t); !found {
+			args := argsFromType(peerType, t).With("Scope", types.Ref(conversionPackagePath, "Scope"))
+			sw.Do("if err := s.AddGeneratedConversionFunc((*$.inType|raw$)(nil), (*$.outType|raw$)(nil), func(a, b interface{}, scope $.Scope|raw$) error { return "+genericconversiongenerator.ConversionFunctionName(peerType, t)+"(a.(*$.inType|raw$), b.(*$.outType|raw$), scope) }); err != nil { return err }\n", args)
+		}
 	}
 
 	for _, pair := range g.explicitConversions {
