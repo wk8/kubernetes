@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "manual_conversions_tracker.go",
+        "unsafe_conversion_arbitrator.go",
         "utils.go",
     ],
     importmap = "k8s.io/kubernetes/vendor/k8s.io/code-generator/lib/conversiongen",

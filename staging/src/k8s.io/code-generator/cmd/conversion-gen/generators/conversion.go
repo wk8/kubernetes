@@ -42,9 +42,20 @@ const (
 	// e.g., "+k8s:conversion-gen=false" in a type's comment will let
 	// conversion-gen skip that type.
 	tagName = "k8s:conversion-gen"
+
+	// e.g., "+k8s:conversion-fn=copy-only". copy-only functions that are directly
+	// assignable can be inlined instead of invoked. As an example, conversion functions
+	// exist that allow types with private fields to be correctly copied between types.
+	// These functions are equivalent to a memory assignment, and are necessary for the
+	// reflection path, but should not block memory conversion.
+	// e.g.,  "+k8s:conversion-fn=drop" to instruct conversion-gen to not use that conversion
+	// function.
+	functionTagName = "k8s:conversion-fn"
+
 	// e.g. "+k8s:conversion-gen:explicit-from=net/url.Values" in the type comment
 	// will result in generating conversion from net/url.Values.
 	explicitFromTagName = "k8s:conversion-gen:explicit-from"
+
 	// e.g., "+k8s:conversion-gen-external-types=<type-pkg>" in doc.go, where
 	// <type-pkg> is the relative path to the package the types are defined in.
 	externalTypesTagName = "k8s:conversion-gen-external-types"
@@ -63,12 +74,12 @@ func extractExternalTypesTag(comments []string) []string {
 }
 
 func isCopyOnly(comments []string) bool {
-	values := types.ExtractCommentTags("+", comments)["k8s:conversion-fn"]
+	values := types.ExtractCommentTags("+", comments)[functionTagName]
 	return len(values) == 1 && values[0] == "copy-only"
 }
 
 func isDrop(comments []string) bool {
-	values := types.ExtractCommentTags("+", comments)["k8s:conversion-fn"]
+	values := types.ExtractCommentTags("+", comments)[functionTagName]
 	return len(values) == 1 && values[0] == "drop"
 }
 
@@ -144,7 +155,8 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 	// TODO: in the future, relax the nested manual conversion requirement
 	//   if we can show that a large enough types are memory identical but
 	//   have non-trivial conversion
-	memoryEquivalentTypes := equalMemoryTypes{}
+	unsafeConversionArbitrator := conversiongen.NewUnsafeConversionArbitrator(manualConversionsTracker)
+	unsafeConversionArbitrator.SetFunctionTagName(functionTagName)
 
 	// We are generating conversions only for packages that are explicitly
 	// passed as InputDir.
@@ -244,9 +256,8 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 			}
 		}
 
-		unsafeEquality := TypesEqual(memoryEquivalentTypes)
 		if skipUnsafe {
-			unsafeEquality = noEquality{}
+			unsafeConversionArbitrator = nil
 		}
 
 		path := pkg.Path
@@ -270,7 +281,7 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 				HeaderText:  header,
 				GeneratorFunc: func(c *generator.Context) (generators []generator.Generator) {
 					return []generator.Generator{
-						NewGenConversion(arguments.OutputFileBaseName, typesPkg.Path, pkg.Path, manualConversionsTracker, peerPkgs, unsafeEquality),
+						NewGenConversion(arguments.OutputFileBaseName, typesPkg.Path, pkg.Path, manualConversionsTracker, peerPkgs, unsafeConversionArbitrator),
 					}
 				},
 				FilterFunc: func(c *generator.Context, t *types.Type) bool {
@@ -279,88 +290,7 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 			})
 	}
 
-	// If there is a manual conversion defined between two types, exclude it
-	// from being a candidate for unsafe conversion
-	for k, v := range manualConversionsTracker.ConversionFunctions {
-		if isCopyOnly(v.CommentLines) {
-			klog.V(5).Infof("Conversion function %s will not block memory copy because it is copy-only", v.Name)
-			continue
-		}
-		// this type should be excluded from all equivalence, because the converter must be called.
-		memoryEquivalentTypes.Skip(k.InType, k.OutType)
-	}
-
 	return packages
-}
-
-type equalMemoryTypes map[conversionPair]bool
-
-func (e equalMemoryTypes) Skip(a, b *types.Type) {
-	e[conversionPair{a, b}] = false
-	e[conversionPair{b, a}] = false
-}
-
-func (e equalMemoryTypes) Equal(a, b *types.Type) bool {
-	// alreadyVisitedTypes holds all the types that have already been checked in the structural type recursion.
-	alreadyVisitedTypes := make(map[*types.Type]bool)
-	return e.cachingEqual(a, b, alreadyVisitedTypes)
-}
-
-func (e equalMemoryTypes) cachingEqual(a, b *types.Type, alreadyVisitedTypes map[*types.Type]bool) bool {
-	if a == b {
-		return true
-	}
-	if equal, ok := e[conversionPair{a, b}]; ok {
-		return equal
-	}
-	if equal, ok := e[conversionPair{b, a}]; ok {
-		return equal
-	}
-	result := e.equal(a, b, alreadyVisitedTypes)
-	e[conversionPair{a, b}] = result
-	e[conversionPair{b, a}] = result
-	return result
-}
-
-func (e equalMemoryTypes) equal(a, b *types.Type, alreadyVisitedTypes map[*types.Type]bool) bool {
-	in, out := unwrapAlias(a), unwrapAlias(b)
-	switch {
-	case in == out:
-		return true
-	case in.Kind == out.Kind:
-		// if the type exists already, return early to avoid recursion
-		if alreadyVisitedTypes[in] {
-			return true
-		}
-		alreadyVisitedTypes[in] = true
-
-		switch in.Kind {
-		case types.Struct:
-			if len(in.Members) != len(out.Members) {
-				return false
-			}
-			for i, inMember := range in.Members {
-				outMember := out.Members[i]
-				if !e.cachingEqual(inMember.Type, outMember.Type, alreadyVisitedTypes) {
-					return false
-				}
-			}
-			return true
-		case types.Pointer:
-			return e.cachingEqual(in.Elem, out.Elem, alreadyVisitedTypes)
-		case types.Map:
-			return e.cachingEqual(in.Key, out.Key, alreadyVisitedTypes) && e.cachingEqual(in.Elem, out.Elem, alreadyVisitedTypes)
-		case types.Slice:
-			return e.cachingEqual(in.Elem, out.Elem, alreadyVisitedTypes)
-		case types.Interface:
-			// TODO: determine whether the interfaces are actually equivalent - for now, they must have the
-			// same type.
-			return false
-		case types.Builtin:
-			return in.Name.Name == out.Name.Name
-		}
-	}
-	return false
 }
 
 func findMember(t *types.Type, name string) (types.Member, bool) {
@@ -388,14 +318,6 @@ const (
 	conversionPackagePath = "k8s.io/apimachinery/pkg/conversion"
 )
 
-type noEquality struct{}
-
-func (noEquality) Equal(_, _ *types.Type) bool { return false }
-
-type TypesEqual interface {
-	Equal(a, b *types.Type) bool
-}
-
 // genConversion produces a file with a autogenerated conversions.
 type genConversion struct {
 	generator.DefaultGen
@@ -405,29 +327,32 @@ type genConversion struct {
 	// the package that the conversion funcs are going to be output to
 	outputPackage string
 	// packages that contain the peer of types in typesPacakge
-	peerPackages             []string
-	manualConversionsTracker *conversiongen.ManualConversionsTracker
-	imports                  namer.ImportTracker
-	types                    []*types.Type
-	explicitConversions      []conversionPair
-	skippedFields            map[*types.Type][]string
-	useUnsafe                TypesEqual
+	peerPackages               []string
+	manualConversionsTracker   *conversiongen.ManualConversionsTracker
+	imports                    namer.ImportTracker
+	types                      []*types.Type
+	explicitConversions        []conversionPair
+	skippedFields              map[*types.Type][]string
+	unsafeConversionArbitrator *conversiongen.UnsafeConversionArbitrator
 }
 
-func NewGenConversion(sanitizedName, typesPackage, outputPackage string, manualConversionsTracker *conversiongen.ManualConversionsTracker, peerPkgs []string, useUnsafe TypesEqual) generator.Generator {
+// NewGenConversion creates a new conversion generation task.
+// All arguments are mandatory, except for unsafeConversionArbitrator; if unsafe conversions
+// are disabled, the arbitrator should be nil.
+func NewGenConversion(sanitizedName, typesPackage, outputPackage string, manualConversionsTracker *conversiongen.ManualConversionsTracker, peerPkgs []string, unsafeConversionArbitrator *conversiongen.UnsafeConversionArbitrator) generator.Generator {
 	return &genConversion{
 		DefaultGen: generator.DefaultGen{
 			OptionalName: sanitizedName,
 		},
-		typesPackage:             typesPackage,
-		outputPackage:            outputPackage,
-		peerPackages:             peerPkgs,
-		manualConversionsTracker: manualConversionsTracker,
-		imports:                  generator.NewImportTracker(),
-		types:                    []*types.Type{},
-		explicitConversions:      []conversionPair{},
-		skippedFields:            map[*types.Type][]string{},
-		useUnsafe:                useUnsafe,
+		typesPackage:               typesPackage,
+		outputPackage:              outputPackage,
+		peerPackages:               peerPkgs,
+		manualConversionsTracker:   manualConversionsTracker,
+		imports:                    generator.NewImportTracker(),
+		types:                      []*types.Type{},
+		explicitConversions:        []conversionPair{},
+		skippedFields:              map[*types.Type][]string{},
+		unsafeConversionArbitrator: unsafeConversionArbitrator,
 	}
 }
 
@@ -570,22 +495,6 @@ func (g *genConversion) preexists(inType, outType *types.Type) (*types.Type, boo
 }
 
 func (g *genConversion) Init(c *generator.Context, w io.Writer) error {
-	if klog.V(5) {
-		if m, ok := g.useUnsafe.(equalMemoryTypes); ok {
-			var result []string
-			klog.Infof("All objects without identical memory layout:")
-			for k, v := range m {
-				if v {
-					continue
-				}
-				result = append(result, fmt.Sprintf("  %s -> %s = %t", k.inType, k.outType, v))
-			}
-			sort.Strings(result)
-			for _, s := range result {
-				klog.Infof(s)
-			}
-		}
-	}
 	sw := generator.NewSnippetWriter(w, c, "$", "$")
 	sw.Do("func init() {\n", nil)
 	sw.Do("localSchemeBuilder.Register(RegisterConversions)\n", nil)
@@ -840,7 +749,7 @@ func (g *genConversion) doStruct(inType, outType *types.Type, sw *generator.Snip
 		args := argsFromType(inMemberType, outMemberType).With("name", inMember.Name)
 
 		// try a direct memory copy for any type that has exactly equivalent values
-		if g.useUnsafe.Equal(inMemberType, outMemberType) {
+		if g.unsafeConversionArbitrator != nil && g.unsafeConversionArbitrator.CanUseUnsafeConversion(inMemberType, outMemberType) {
 			args = args.
 				With("Pointer", types.Ref("unsafe", "Pointer")).
 				With("SliceHeader", types.Ref("reflect", "SliceHeader"))
@@ -1052,7 +961,7 @@ func (g *genConversion) fromValuesEntry(inType *types.Type, outMember types.Memb
 	switch {
 	case outMember.Type == types.String:
 		sw.Do("out.$.name$ = values[0]\n", memberArgs)
-	case g.useUnsafe.Equal(inType, outMember.Type):
+	case g.unsafeConversionArbitrator != nil && g.unsafeConversionArbitrator.CanUseUnsafeConversion(inType, outMember.Type):
 		args := memberArgs.With("Pointer", types.Ref("unsafe", "Pointer"))
 		switch inType.Kind {
 		case types.Pointer:
