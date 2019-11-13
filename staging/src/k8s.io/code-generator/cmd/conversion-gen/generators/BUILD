@@ -17,6 +17,7 @@ go_library(
         "//vendor/k8s.io/gengo/namer:go_default_library",
         "//vendor/k8s.io/gengo/types:go_default_library",
         "//vendor/k8s.io/klog:go_default_library",
+        "//vendor/k8s.io/kubernetes/staging/src/k8s.io/code-generator/lib/conversiongen:go_default_library",
     ],
 )
 
