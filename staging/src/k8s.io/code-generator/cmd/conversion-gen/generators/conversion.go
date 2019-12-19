@@ -29,10 +29,10 @@ import (
 	"k8s.io/gengo/namer"
 	"k8s.io/gengo/types"
 
-	"k8s.io/code-generator/pkg/conversiongen"
 	"k8s.io/klog"
 
 	conversionargs "k8s.io/code-generator/cmd/conversion-gen/args"
+	"k8s.io/code-generator/pkg/conversiongen"
 )
 
 // These are the comment tags that carry parameters for conversion generation.
