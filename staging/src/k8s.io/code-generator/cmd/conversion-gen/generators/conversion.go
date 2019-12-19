@@ -33,6 +33,7 @@ import (
 	"k8s.io/klog"
 
 	conversionargs "k8s.io/code-generator/cmd/conversion-gen/args"
+	"k8s.io/code-generator/pkg/conversiongen"
 )
 
 // These are the comment tags that carry parameters for conversion generation.
@@ -41,7 +42,7 @@ const (
 	// import path of the package the peer types are defined in.
 	// e.g., "+k8s:conversion-gen=false" in a type's comment will let
 	// conversion-gen skip that type.
-	tagName = "k8s:conversion-gen"
+	tagName = "k8s:conversion" + conversiongen.WkpoGen
 	// e.g. "+k8s:conversion-gen:explicit-from=net/url.Values" in the type comment
 	// will result in generating conversion from net/url.Values.
 	explicitFromTagName = "k8s:conversion-gen:explicit-from"
