@@ -29,8 +29,8 @@ import (
 	"k8s.io/gengo/namer"
 	"k8s.io/gengo/types"
 
+	"k8s.io/code-generator/pkg/conversiongen"
 	"k8s.io/klog"
-	"k8s.io/kubernetes/staging/src/k8s.io/code-generator/pkg/conversiongen"
 
 	conversionargs "k8s.io/code-generator/cmd/conversion-gen/args"
 )
