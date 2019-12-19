@@ -17,7 +17,6 @@ limitations under the License.
 package generators
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -130,74 +129,6 @@ type conversionPair struct {
 // the underlying type being "Func".
 type conversionFuncMap map[conversionPair]*types.Type
 
-// Returns all manually-defined conversion functions in the package.
-func getManualConversionFunctions(context *generator.Context, pkg *types.Package, manualMap conversionFuncMap) {
-	if pkg == nil {
-		klog.Warningf("Skipping nil package passed to getManualConversionFunctions")
-		return
-	}
-	klog.V(5).Infof("Scanning for conversion functions in %v", pkg.Name)
-
-	scopeName := types.Ref(conversionPackagePath, "Scope").Name
-	errorName := types.Ref("", "error").Name
-	buffer := &bytes.Buffer{}
-	sw := generator.NewSnippetWriter(buffer, context, "$", "$")
-
-	for _, f := range pkg.Functions {
-		if f.Underlying == nil || f.Underlying.Kind != types.Func {
-			klog.Errorf("Malformed function: %#v", f)
-			continue
-		}
-		if f.Underlying.Signature == nil {
-			klog.Errorf("Function without signature: %#v", f)
-			continue
-		}
-		klog.V(8).Infof("Considering function %s", f.Name)
-		signature := f.Underlying.Signature
-		// Check whether the function is conversion function.
-		// Note that all of them have signature:
-		// func Convert_inType_To_outType(inType, outType, conversion.Scope) error
-		if signature.Receiver != nil {
-			klog.V(8).Infof("%s has a receiver", f.Name)
-			continue
-		}
-		if len(signature.Parameters) != 3 || signature.Parameters[2].Name != scopeName {
-			klog.V(8).Infof("%s has wrong parameters", f.Name)
-			continue
-		}
-		if len(signature.Results) != 1 || signature.Results[0].Name != errorName {
-			klog.V(8).Infof("%s has wrong results", f.Name)
-			continue
-		}
-		inType := signature.Parameters[0]
-		outType := signature.Parameters[1]
-		if inType.Kind != types.Pointer || outType.Kind != types.Pointer {
-			klog.V(8).Infof("%s has wrong parameter types", f.Name)
-			continue
-		}
-		// Now check if the name satisfies the convention.
-		// TODO: This should call the Namer directly.
-		args := argsFromType(inType.Elem, outType.Elem)
-		sw.Do("Convert_$.inType|public$_To_$.outType|public$", args)
-		if f.Name.Name == buffer.String() {
-			klog.V(4).Infof("Found conversion function %s", f.Name)
-			key := conversionPair{inType.Elem, outType.Elem}
-			// We might scan the same package twice, and that's OK.
-			if v, ok := manualMap[key]; ok && v != nil && v.Name.Package != pkg.Path {
-				panic(fmt.Sprintf("duplicate static conversion defined: %s -> %s from:\n%s.%s\n%s.%s", key.inType, key.outType, v.Name.Package, v.Name.Name, f.Name.Package, f.Name.Name))
-			}
-			manualMap[key] = f
-		} else {
-			// prevent user error when they don't get the correct conversion signature
-			if strings.HasPrefix(f.Name.Name, "Convert_") {
-				klog.Errorf("Rename function %s %s -> %s to match expected conversion signature", f.Name.Package, f.Name.Name, buffer.String())
-			}
-			klog.V(8).Infof("%s has wrong name", f.Name)
-		}
-		buffer.Reset()
-	}
-}
-
 func Packages(context *generator.Context, arguments *args.GeneratorArgs) generator.Packages {
 	boilerplate, err := arguments.LoadGoBoilerplate()
 	if err != nil {
@@ -246,7 +177,6 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 		}
 
 		// Add conversion and defaulting functions.
-		getManualConversionFunctions(context, pkg, manualConversions)
 		if errs := manualConversionsTracker.FindManualConversionFunctions(context, pkg.Path); len(errs) != 0 {
 			klog.Fatalf("Failed to find manual conversion functions: %v", errs)
 		}
@@ -318,7 +248,6 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 			if nil == p {
 				klog.Fatalf("failed to find pkg: %s", pp)
 			}
-			getManualConversionFunctions(context, p, manualConversions)
 			if errs := manualConversionsTracker.FindManualConversionFunctions(context, p.Path); len(errs) != 0 {
 				klog.Fatalf("Failed to find manual conversion functions: %v", errs)
 			}
