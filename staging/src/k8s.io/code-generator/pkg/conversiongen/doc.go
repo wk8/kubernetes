@@ -17,6 +17,3 @@ limitations under the License.
 package conversiongen
 
 // This package contains generic structures and helpers to write conversion generators.
-
-// TODO wkpo
-const WkpoGen = "gen"
