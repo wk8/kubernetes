@@ -1,0 +1,9 @@
+dockerLibraryRegistry: e2eteam
+e2eRegistry: e2eteam
+etcdRegistry: e2eteam
+gcRegistry: e2eteam
+hazelcastRegistry: e2eteam
+PrivateRegistry: e2eteam
+sampleRegistry: e2eteam
+stormRegistry: e2eteam
+zookeeperRegistry: e2eteam

@@ -30,9 +30,9 @@ import (
 	"k8s.io/gengo/types"
 
 	"k8s.io/klog"
+	"k8s.io/kubernetes/staging/src/k8s.io/code-generator/pkg/conversiongen"
 
 	conversionargs "k8s.io/code-generator/cmd/conversion-gen/args"
-	"k8s.io/code-generator/pkg/conversiongen"
 )
 
 // These are the comment tags that carry parameters for conversion generation.
@@ -41,7 +41,7 @@ const (
 	// import path of the package the peer types are defined in.
 	// e.g., "+k8s:conversion-gen=false" in a type's comment will let
 	// conversion-gen skip that type.
-	tagName = "k8s:conversion" + conversiongen.WkpoGen
+	tagName = "k8s:conversion-gen"
 	// e.g. "+k8s:conversion-gen:explicit-from=net/url.Values" in the type comment
 	// will result in generating conversion from net/url.Values.
 	explicitFromTagName = "k8s:conversion-gen:explicit-from"
@@ -125,10 +125,6 @@ type conversionPair struct {
 	outType *types.Type
 }
 
-// All of the types in conversions map are of type "DeclarationOf" with
-// the underlying type being "Func".
-type conversionFuncMap map[conversionPair]*types.Type
-
 func Packages(context *generator.Context, arguments *args.GeneratorArgs) generator.Packages {
 	boilerplate, err := arguments.LoadGoBoilerplate()
 	if err != nil {
@@ -139,13 +135,8 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 	header := append([]byte(fmt.Sprintf("// +build !%s\n\n", arguments.GeneratedBuildTag)), boilerplate...)
 
 	// Accumulate pre-existing conversion functions.
-	// TODO: This is too ad-hoc.  We need a better way.
-	manualConversions := conversionFuncMap{}
 	scopeVar := conversiongen.NewNamedVariable("s", types.Ref(conversionPackagePath, "Scope"))
 	manualConversionsTracker := conversiongen.NewManualConversionsTracker(scopeVar)
-	if manualConversionsTracker == nil {
-		panic("wkpo")
-	}
 
 	// Record types that are memory equivalent. A type is memory equivalent
 	// if it has the same memory layout and no nested manual conversion is
@@ -290,13 +281,13 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 
 	// If there is a manual conversion defined between two types, exclude it
 	// from being a candidate for unsafe conversion
-	for k, v := range manualConversions {
+	for k, v := range manualConversionsTracker.ConversionFunctions {
 		if isCopyOnly(v.CommentLines) {
 			klog.V(5).Infof("Conversion function %s will not block memory copy because it is copy-only", v.Name)
 			continue
 		}
 		// this type should be excluded from all equivalence, because the converter must be called.
-		memoryEquivalentTypes.Skip(k.inType, k.outType)
+		memoryEquivalentTypes.Skip(k.InType, k.OutType)
 	}
 
 	return packages
@@ -415,7 +406,6 @@ type genConversion struct {
 	outputPackage string
 	// packages that contain the peer of types in typesPacakge
 	peerPackages             []string
-	manualConversions        conversionFuncMap
 	manualConversionsTracker *conversiongen.ManualConversionsTracker
 	imports                  namer.ImportTracker
 	types                    []*types.Type
@@ -1011,6 +1001,11 @@ func (g *genConversion) generateFromUrlValues(inType, outType *types.Type, sw *g
 	}
 	sw.Do("func auto"+nameTmpl+"(in *$.inType|raw$, out *$.outType|raw$, s $.Scope|raw$) error {\n", args)
 	for _, outMember := range outType.Members {
+		if tagvals := extractTag(outMember.CommentLines); tagvals != nil && tagvals[0] == "false" {
+			// This field is excluded from conversion.
+			sw.Do("// INFO: in."+outMember.Name+" opted out of conversion generation\n", nil)
+			continue
+		}
 		jsonTag := reflect.StructTag(outMember.Tags).Get("json")
 		index := strings.Index(jsonTag, ",")
 		if index == -1 {
